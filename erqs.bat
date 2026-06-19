@@ -8,4 +8,12 @@ if %errorlevel% neq 0 (
     exit /b 1
 )
 
+python -c "import keyboard" >nul 2>&1
+if %errorlevel% neq 0 (
+    echo keyboard library not found. Please run:
+    echo   pip install keyboard
+    pause
+    exit /b 1
+)
+
 start "" python "%~dp0main.py"

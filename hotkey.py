@@ -110,8 +110,6 @@ class HotkeyManager:
         """移除所有热键"""
         self._running = False
         try:
-            import keyboard
-
             keyboard.unhook_all()
         except Exception:
             pass
