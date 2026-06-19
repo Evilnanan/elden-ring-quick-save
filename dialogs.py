@@ -162,7 +162,6 @@ class SaveDialog(tk.Toplevel):
         self.title("快速存档")
         self.resizable(False, False)
         self.grab_set()
-        self.attributes("-topmost", True)
 
         self._saves = saves
         self._on_save = on_save
@@ -293,7 +292,6 @@ class LoadDialog(tk.Toplevel):
         self.title("快速读档")
         self.resizable(False, False)
         self.grab_set()
-        self.attributes("-topmost", True)
 
         self._saves = saves
         self._on_load = on_load
