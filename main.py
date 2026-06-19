@@ -48,7 +48,8 @@ class App(tk.Tk):
             save_hotkey=cfg["save_hotkey"],
             load_hotkey=cfg["load_hotkey"],
         )
-        self._dialog_open = False  # 防止热键重入
+        self._save_dialog: SaveDialog | None = None
+        self._load_dialog: LoadDialog | None = None
 
         # ── 构建界面 ────────────────────────────────────
         self._build_ui()
@@ -371,11 +372,9 @@ class App(tk.Tk):
         self.after(100, self._poll_hotkey_queue)
 
     def _handle_hotkey(self, action: HotkeyAction) -> None:
-        if self._dialog_open:
-            return
         if not self._current_steam_id:
             with self._hotkey.suppressed():
-                messagebox.showwarning("提示", "请先选择一个 Steam 账号")
+                messagebox.showwarning("提示", "请先选择一个 Steam 账号", parent=self)
             return
 
         steam_id = self._current_steam_id
@@ -383,15 +382,35 @@ class App(tk.Tk):
         if account is None:
             return
 
-        self._dialog_open = True
-        _suppress_guard = self._hotkey.suppressed()
-        _suppress_guard.__enter__()
+        # ── 如果对应对话框已打开，则将其提到前台 ──────────
+        if action == HotkeyAction.SAVE:
+            if self._save_dialog is not None and self._save_dialog.winfo_exists():
+                self._save_dialog.bring_to_front()
+                return
+        else:  # LOAD
+            if self._load_dialog is not None and self._load_dialog.winfo_exists():
+                self._load_dialog.bring_to_front()
+                return
+
+        # ── 关闭另一个对话框（如果打开着） ──────────────────
+        if action == HotkeyAction.SAVE:
+            if self._load_dialog is not None:
+                if self._load_dialog.winfo_exists():
+                    self._load_dialog.destroy()
+                self._load_dialog = None
+        else:
+            if self._save_dialog is not None:
+                if self._save_dialog.winfo_exists():
+                    self._save_dialog.destroy()
+                self._save_dialog = None
 
         save_path = account["save_path"]
 
         def on_dialog_close() -> None:
-            self._dialog_open = False
-            _suppress_guard.__exit__(None, None, None)
+            if action == HotkeyAction.SAVE:
+                self._save_dialog = None
+            else:
+                self._load_dialog = None
 
         if action == HotkeyAction.SAVE:
 
@@ -400,15 +419,16 @@ class App(tk.Tk):
                     create_save(steam_id, name, save_path)
                     self._refresh_save_list()
                 except Exception as e:
-                    messagebox.showerror("存档失败", str(e))
+                    assert self._save_dialog is not None  # 回调时对话框一定存在
+                    messagebox.showerror("存档失败", str(e), parent=self._save_dialog)
 
-            SaveDialog(self._saves, do_save, on_close=on_dialog_close)
+            self._save_dialog = SaveDialog(
+                self._saves, do_save, on_close=on_dialog_close
+            )
 
         elif action == HotkeyAction.LOAD:
             if not self._saves:
-                messagebox.showwarning("提示", "还没有任何存档，请先存档")
-                self._dialog_open = False
-                _suppress_guard.__exit__(None, None, None)
+                messagebox.showwarning("提示", "还没有任何存档，请先存档", parent=self)
                 return
 
             def do_load(name: str) -> None:
@@ -416,9 +436,12 @@ class App(tk.Tk):
                     load_save(steam_id, name, save_path)
                     self._refresh_save_list()
                 except Exception as e:
-                    messagebox.showerror("读档失败", str(e))
+                    assert self._load_dialog is not None  # 回调时对话框一定存在
+                    messagebox.showerror("读档失败", str(e), parent=self._load_dialog)
 
-            LoadDialog(self._saves, do_load, on_close=on_dialog_close)
+            self._load_dialog = LoadDialog(
+                self._saves, do_load, on_close=on_dialog_close
+            )
 
     # ── 关闭 ──────────────────────────────────────────
 

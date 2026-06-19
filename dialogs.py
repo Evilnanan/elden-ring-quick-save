@@ -11,6 +11,19 @@ import keyboard
 from utils import fuzzy_match, key_display, sanitize_filename, validate_filename
 
 # ═══════════════════════════════════════════════════════════════
+# 工具函数
+# ═══════════════════════════════════════════════════════════════
+
+
+def bring_to_front(dlg: tk.Toplevel) -> None:
+    """临时 topmost 后取消，确保对话框能出现在顶层"""
+    dlg.lift()
+    dlg.attributes("-topmost", True)
+    dlg.after(0, lambda: dlg.attributes("-topmost", False))
+    dlg.focus_force()
+
+
+# ═══════════════════════════════════════════════════════════════
 # 热键修改对话框
 # ═══════════════════════════════════════════════════════════════
 
@@ -184,9 +197,12 @@ class SaveDialog(tk.Toplevel):
         self.bind("<Return>", lambda e: self._confirm())
         self.bind("<Escape>", lambda e: self.destroy())
 
-        # 获取焦点
-        self.lift()
-        self.focus_force()
+        # 获取焦点（延迟到窗口完全就绪，避免干扰居中）
+        self.after_idle(self.bring_to_front)
+
+    def bring_to_front(self) -> None:
+        """对话框置顶并将焦点放到搜索输入框"""
+        bring_to_front(self)
         self._search_entry.focus_set()
 
     def _build_ui(self) -> None:
@@ -316,9 +332,12 @@ class LoadDialog(tk.Toplevel):
         self.bind("<Return>", lambda e: self._confirm())
         self.bind("<Escape>", lambda e: self.destroy())
 
-        # 获取焦点
-        self.lift()
-        self.focus_force()
+        # 获取焦点（延迟到窗口完全就绪，避免干扰居中）
+        self.after_idle(self.bring_to_front)
+
+    def bring_to_front(self) -> None:
+        """对话框置顶并将焦点放到搜索输入框"""
+        bring_to_front(self)
         self._search_entry.focus_set()
 
     def _build_ui(self) -> None:
