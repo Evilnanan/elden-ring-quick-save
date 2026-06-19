@@ -10,19 +10,29 @@ from typing import TypedDict
 _SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 
 
+class ManualAccount(TypedDict):
+    """手动添加的账号信息"""
+
+    steam_id: str
+    save_path: str
+
+
 class AppConfig(TypedDict):
     save_hotkey: str
     load_hotkey: str
+    manual_accounts: list[ManualAccount]
 
 
 class AppConfigPartial(TypedDict, total=False):
     save_hotkey: str
     load_hotkey: str
+    manual_accounts: list[ManualAccount]
 
 
 _DEFAULT_CONFIG: AppConfig = {
     "save_hotkey": ",",
     "load_hotkey": ".",
+    "manual_accounts": [],
 }
 
 
@@ -48,6 +58,20 @@ def load_config() -> AppConfig:
         for key in ("save_hotkey", "load_hotkey"):
             if key in data and isinstance(data[key], str) and data[key].strip():
                 config[key] = data[key]
+        if "manual_accounts" in data and isinstance(data["manual_accounts"], list):
+            validated: list[ManualAccount] = []
+            for item in data["manual_accounts"]:
+                if (
+                    isinstance(item, dict)
+                    and isinstance(item.get("steam_id"), str)
+                    and isinstance(item.get("save_path"), str)
+                    and item["steam_id"].strip()
+                    and item["save_path"].strip()
+                ):
+                    validated.append(
+                        {"steam_id": item["steam_id"], "save_path": item["save_path"]}
+                    )
+            config["manual_accounts"] = validated
     return config
 
 
@@ -58,3 +82,22 @@ def save_config(partial: AppConfigPartial) -> None:
     path = _config_path()
     with open(path, "w", encoding="utf-8") as f:
         json.dump(config, f, ensure_ascii=False, indent=2)
+
+
+# ═══════════════════════════════════════════════════════════════
+# 手动账号管理辅助函数
+# ═══════════════════════════════════════════════════════════════
+
+
+def load_manual_accounts() -> dict[str, str]:
+    """加载手动添加的账号，返回 {steam_id: save_path}"""
+    cfg = load_config()
+    return {a["steam_id"]: a["save_path"] for a in cfg["manual_accounts"]}
+
+
+def save_manual_accounts(accounts: dict[str, str]) -> None:
+    """持久化手动添加的账号"""
+    manual_list: list[ManualAccount] = [
+        {"steam_id": sid, "save_path": path} for sid, path in accounts.items()
+    ]
+    save_config({"manual_accounts": manual_list})

@@ -4,6 +4,17 @@ import os
 import re
 import struct
 import winreg
+from typing import TypedDict
+
+from config import load_manual_accounts
+
+
+class AccountInfo(TypedDict):
+    """统一的账号信息"""
+
+    name: str  # 用户名，手动添加的为空字符串
+    save_path: str  # 存档文件的完整路径
+    is_manual: bool  # 是否为手动添加
 
 
 def get_steam_install_path() -> str | None:
@@ -74,3 +85,35 @@ def get_elden_ring_save_path(steam_id: str) -> str:
 def _is_64bit() -> bool:
     """检测当前系统是否为 64 位"""
     return struct.calcsize("P") * 8 == 64
+
+
+# ═══════════════════════════════════════════════════════════════
+# 统一账号获取
+# ═══════════════════════════════════════════════════════════════
+
+
+def get_all_accounts() -> dict[str, AccountInfo]:
+    """获取所有账号（自动检测 + 手动添加），返回 {steam_id: AccountInfo}
+
+    手动添加的排在最前面（优先显示），自动检测的按存档活动时间排序。
+    """
+    result: dict[str, AccountInfo] = {}
+
+    # ── 手动添加的账号 ──
+    for sid, save_path in load_manual_accounts().items():
+        result[sid] = AccountInfo(
+            name="",
+            save_path=save_path,
+            is_manual=True,
+        )
+
+    # ── 自动检测的 Steam 账号 ──
+    for sid, name in get_all_steam_accounts().items():
+        if sid not in result:  # 手动添加的同 ID 优先
+            result[sid] = AccountInfo(
+                name=name,
+                save_path=get_elden_ring_save_path(sid),
+                is_manual=False,
+            )
+
+    return result

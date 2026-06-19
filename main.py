@@ -1,19 +1,18 @@
-"""Elden Ring 快速 SL 工具 — Tkinter 主界面
-
-功能：
-- Steam 账号自动发现与选择
-- 命名存档管理（列表、重命名、删除）
-- 全局热键存档/读档（默认 , 存档、. 读档）
-- 模糊搜索过滤
-"""
+"""Elden Ring 快速 SL 工具 — Tkinter 主界面"""
 
 import queue
 import tkinter as tk
 from datetime import datetime
 from tkinter import messagebox, ttk
 
-from config import load_config, save_config
-from dialogs import HotkeyRebindDialog, LoadDialog, RenameDialog, SaveDialog
+from config import load_config, load_manual_accounts, save_config, save_manual_accounts
+from dialogs import (
+    HotkeyRebindDialog,
+    LoadDialog,
+    ManualAccountDialog,
+    RenameDialog,
+    SaveDialog,
+)
 from hotkey import HotkeyAction, HotkeyManager
 from save_manager import (
     SaveInfo,
@@ -23,7 +22,7 @@ from save_manager import (
     load_save,
     rename_save,
 )
-from steam_helper import get_all_steam_accounts, get_elden_ring_save_path
+from steam_helper import AccountInfo, get_all_accounts
 from utils import fuzzy_match
 from typing import Literal
 
@@ -37,10 +36,11 @@ class App(tk.Tk):
         super().__init__()
         self.title("老头环快速SL工具")
         self.resizable(True, True)
-        self.minsize(420, 340)
+        self.minsize(480, 340)
 
         # ── 状态 ────────────────────────────────────────
-        self._accounts: dict[str, str] = {}  # steam_id → account_name
+        self._accounts: dict[str, AccountInfo] = {}  # steam_id → AccountInfo
+        self._display_to_id: dict[str, str] = {}  # 下拉框显示 → steam_id
         self._current_steam_id: str | None = None
         self._saves: list[SaveInfo] = []
         cfg = load_config()
@@ -73,17 +73,21 @@ class App(tk.Tk):
             top_frame,
             textvariable=self._steam_var,
             state="readonly",
-            width=22,
+            width=34,
         )
         self._steam_combo.pack(side="left", padx=8, pady=4)
         self._steam_combo.bind("<<ComboboxSelected>>", self._on_account_changed)
         ttk.Button(top_frame, text="刷新", command=self._load_accounts).pack(
             side="left"
         )
-
-        # 用户名
-        self._name_label = ttk.Label(top_frame, text="", foreground="gray")
-        self._name_label.pack(side="left", padx=12)
+        self._remove_manual_btn = ttk.Button(
+            top_frame,
+            text="✕",
+            width=3,
+            state="disabled",
+            command=self._remove_manual_account,
+        )
+        self._remove_manual_btn.pack(side="left", padx=(2, 0))
 
         # ── 搜索 ────────────────────────────────────────
         search_frame = ttk.Frame(self, padding=(8, 6, 8, 0))
@@ -111,9 +115,9 @@ class App(tk.Tk):
         self._tree.heading("name", text="存档名称")
         self._tree.heading("atime", text="读取时间")
         self._tree.heading("mtime", text="保存时间")
-        self._tree.column("name", width=180, minwidth=100)
-        self._tree.column("atime", width=90, minwidth=75)
-        self._tree.column("mtime", width=90, minwidth=75)
+        self._tree.column("name", width=200, minwidth=100)
+        self._tree.column("atime", width=120, minwidth=75)
+        self._tree.column("mtime", width=120, minwidth=75)
 
         scrollbar = ttk.Scrollbar(
             list_frame, orient="vertical", command=self._tree.yview
@@ -172,24 +176,91 @@ class App(tk.Tk):
     # ── Steam 账号加载 ────────────────────────────────
 
     def _load_accounts(self) -> None:
-        self._accounts = get_all_steam_accounts()
-        ids = list(self._accounts.keys())
-        self._steam_combo["values"] = ids
-        if ids:
-            self._steam_var.set(ids[0])
+        self._accounts = get_all_accounts()
+        # 构建下拉框显示字符串
+        self._display_to_id = {}
+        displays: list[str] = []
+        for sid, info in self._accounts.items():
+            if info["is_manual"]:
+                label = f"{sid}"
+            else:
+                label = f"{sid} ({info['name']})"
+            self._display_to_id[label] = sid
+            displays.append(label)
+
+        # 末尾追加"添加"入口
+        displays.append(self._ADD_ENTRY)
+        self._steam_combo["values"] = displays
+        if self._accounts:
+            self._steam_var.set(displays[0])
             self._on_account_changed()
         else:
             self._steam_var.set("")
-            self._name_label.config(text="未检测到 Steam 账号")
             self._current_steam_id = None
             self._refresh_save_list()
 
+    _ADD_ENTRY = "—— 添加 ——"
+
     def _on_account_changed(self, event=None) -> None:
-        sid = self._steam_var.get()
+        display = self._steam_var.get()
+        if display == self._ADD_ENTRY:
+            # 还原为上次选中的账号
+            prev = self._current_steam_id or ""
+            prev_display = next(
+                (d for d, sid in self._display_to_id.items() if sid == prev), ""
+            )
+            self._steam_var.set(prev_display)
+            self._add_manual_account()
+            return
+
+        sid = self._display_to_id.get(display)
         self._current_steam_id = sid
-        name = self._accounts.get(sid, "")
-        self._name_label.config(text=f"用户名: {name}" if name else "")
+        info = self._accounts.get(sid) if sid else None
+        if info and info["is_manual"]:
+            self._remove_manual_btn.config(state="normal")
+        else:
+            self._remove_manual_btn.config(state="disabled")
         self._refresh_save_list()
+
+    # ── 手动添加 / 删除账号 ──────────────────────────
+
+    def _add_manual_account(self) -> None:
+        """弹出对话框添加账号"""
+        existing_ids = set(self._accounts.keys())
+
+        def on_confirm(steam_id: str, save_path: str) -> None:
+            # 持久化
+            manual = load_manual_accounts()
+            manual[steam_id] = save_path
+            save_manual_accounts(manual)
+            # 刷新
+            self._load_accounts()
+
+        with self._hotkey.suppressed():
+            dlg = ManualAccountDialog(self, existing_ids, on_confirm)
+            self.wait_window(dlg)
+
+    def _remove_manual_account(self) -> None:
+        """删除当前选中的手动添加的账号"""
+        sid = self._current_steam_id
+        if not sid:
+            return
+        info = self._accounts.get(sid)
+        if info is None or not info["is_manual"]:
+            return
+
+        with self._hotkey.suppressed():
+            confirmed = messagebox.askyesno(
+                "确认删除",
+                f"确定删除账号「{sid}」？\n（saves/ 下的存档文件不会被删除）",
+            )
+        if not confirmed:
+            return
+
+        manual = load_manual_accounts()
+        manual.pop(sid, None)
+        save_manual_accounts(manual)
+        self._load_accounts()
 
     # ── 存档列表刷新 ──────────────────────────────────
 
@@ -308,12 +379,15 @@ class App(tk.Tk):
             return
 
         steam_id = self._current_steam_id
+        account = self._accounts.get(steam_id)
+        if account is None:
+            return
 
         self._dialog_open = True
         _suppress_guard = self._hotkey.suppressed()
         _suppress_guard.__enter__()
 
-        save_path = get_elden_ring_save_path(steam_id)
+        save_path = account["save_path"]
 
         def on_dialog_close() -> None:
             self._dialog_open = False

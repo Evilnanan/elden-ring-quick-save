@@ -1,8 +1,8 @@
-"""对话框：热键修改、存档、读档、重命名"""
+"""对话框：热键修改、存档、读档、重命名、手动添加账号"""
 
 import tkinter as tk
 from collections.abc import Callable
-from tkinter import messagebox, ttk
+from tkinter import filedialog, messagebox, ttk
 
 from save_manager import SaveInfo
 
@@ -55,7 +55,6 @@ class HotkeyRebindDialog(tk.Toplevel):
         self.resizable(False, False)
         self.transient(parent)
         self.grab_set()
-        self.attributes("-topmost", True)
 
         self._on_confirm = on_confirm
         self._new_key: str | None = None
@@ -399,7 +398,6 @@ class RenameDialog(tk.Toplevel):
         self.resizable(False, False)
         self.transient(parent)
         self.grab_set()
-        self.attributes("-topmost", True)
 
         self._on_rename = on_rename
 
@@ -455,3 +453,121 @@ class RenameDialog(tk.Toplevel):
             self._var.set(cleaned)
             return False
         return True
+
+
+# ═══════════════════════════════════════════════════════════════
+# 手动添加账号对话框
+# ═══════════════════════════════════════════════════════════════
+
+
+class ManualAccountDialog(tk.Toplevel):
+    """手动添加账号的对话框：输入 Steam ID 和存档文件路径"""
+
+    def __init__(
+        self,
+        parent,
+        existing_ids: set[str],
+        on_confirm: Callable[[str, str], None],
+    ) -> None:
+        super().__init__(parent)
+        self.title("手动添加账号")
+        self.resizable(False, False)
+        self.transient(parent)
+        self.grab_set()
+        self._existing_ids = existing_ids
+        self._on_confirm = on_confirm
+
+        f = ttk.Frame(self, padding=12)
+        f.pack()
+
+        # ── Steam ID ────────────────────────────────────
+        ttk.Label(f, text="Steam ID:").pack(anchor="w")
+        self._id_var = tk.StringVar()
+        vcmd_id = (self.register(self._validate_id_input), "%P")
+        self._id_entry = ttk.Entry(
+            f,
+            textvariable=self._id_var,
+            width=36,
+            validate="key",
+            validatecommand=vcmd_id,
+        )
+        self._id_entry.pack(fill="x", pady=(2, 8))
+
+        # ── 存档路径 ─────────────────────────────────────
+        ttk.Label(f, text="存档文件路径:").pack(anchor="w")
+        path_frame = ttk.Frame(f)
+        path_frame.pack(fill="x", pady=(2, 8))
+        self._path_var = tk.StringVar()
+        ttk.Entry(path_frame, textvariable=self._path_var, width=28).pack(
+            side="left", fill="x", expand=True
+        )
+        ttk.Button(path_frame, text="浏览...", command=self._browse).pack(
+            side="left", padx=(4, 0)
+        )
+
+        # ── 按钮 ────────────────────────────────────────
+        btn_frame = ttk.Frame(f)
+        btn_frame.pack(pady=(4, 0))
+        ttk.Button(btn_frame, text="确定", command=self._confirm).pack(
+            side="left", padx=4
+        )
+        ttk.Button(btn_frame, text="取消", command=self.destroy).pack(
+            side="left", padx=4
+        )
+
+        self.bind("<Return>", lambda e: self._confirm())
+        self.bind("<Escape>", lambda e: self.destroy())
+        self.protocol("WM_DELETE_WINDOW", self.destroy)
+
+        # 居中于父窗口
+        self.update_idletasks()
+        w, h = self.winfo_width(), self.winfo_height()
+        self.geometry(f"{w}x{h}+{parent.winfo_x() + 60}+{parent.winfo_y() + 60}")
+
+        # 自动聚焦到 ID 输入框
+        self._id_entry.focus_set()
+
+    def _browse(self) -> None:
+        """打开文件浏览器选择存档文件"""
+        path = filedialog.askopenfilename(
+            title="选择存档文件",
+            filetypes=[
+                ("存档文件", "*.sl2"),
+                ("所有文件", "*.*"),
+            ],
+        )
+        if path:
+            self._path_var.set(path)
+
+    def _validate_id_input(self, proposed: str) -> bool:
+        """Entry validatecommand：输入时自动剥离非法字符"""
+        cleaned = sanitize_filename(proposed)
+        if cleaned != proposed:
+            self._id_var.set(cleaned)
+            return False
+        return True
+
+    def _confirm(self) -> None:
+        steam_id = self._id_var.get().strip()
+        save_path = self._path_var.get().strip()
+
+        if not steam_id:
+            messagebox.showwarning("提示", "请输入 Steam ID", parent=self)
+            return
+        err = validate_filename(steam_id)
+        if err:
+            messagebox.showwarning("提示", f"Steam ID 不合法：{err}", parent=self)
+            return
+        if not save_path:
+            messagebox.showwarning("提示", "请选择或输入存档文件路径", parent=self)
+            return
+        if steam_id in self._existing_ids:
+            messagebox.showwarning(
+                "提示",
+                f"Steam ID「{steam_id}」已存在",
+                parent=self,
+            )
+            return
+
+        self._on_confirm(steam_id, save_path)
+        self.destroy()
