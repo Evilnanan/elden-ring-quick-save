@@ -24,6 +24,32 @@ def bring_to_front(dlg: tk.Toplevel) -> None:
 
 
 # ═══════════════════════════════════════════════════════════════
+# 安全文件名输入框
+# ═══════════════════════════════════════════════════════════════
+
+
+class SafeFilenameEntry(ttk.Entry):
+    """文件名输入框：输入时自动剥离 Windows 非法字符（<>:"/\\|?*）"""
+
+    def __init__(self, master, textvariable: tk.StringVar, **kwargs) -> None:
+        self._safe_var = textvariable
+        super().__init__(
+            master,
+            textvariable=textvariable,
+            validate="key",
+            validatecommand=(master.register(self._sanitize), "%P"),
+            **kwargs,
+        )
+
+    def _sanitize(self, proposed: str) -> bool:
+        cleaned = sanitize_filename(proposed)
+        if cleaned != proposed:
+            self._safe_var.set(cleaned)
+            return False
+        return True
+
+
+# ═══════════════════════════════════════════════════════════════
 # 热键修改对话框
 # ═══════════════════════════════════════════════════════════════
 
@@ -169,7 +195,12 @@ class SaveDialog(tk.Toplevel):
     独立顶层窗口，与主窗口无父子关系"""
 
     def __init__(
-        self, saves: list[SaveInfo], on_save: Callable, on_close: Callable | None = None
+        self,
+        saves: list[SaveInfo],
+        on_save: Callable,
+        on_close: Callable | None = None,
+        on_delete: Callable | None = None,
+        on_rename: Callable | None = None,
     ):
         super().__init__()
         self.title("快速存档")
@@ -179,6 +210,8 @@ class SaveDialog(tk.Toplevel):
         self._saves = saves
         self._on_save = on_save
         self._on_close = on_close
+        self._on_delete = on_delete
+        self._on_rename = on_rename
 
         self._build_ui()
         self._refresh_list()
@@ -212,13 +245,10 @@ class SaveDialog(tk.Toplevel):
         # 搜索输入
         ttk.Label(f, text="搜索 / 输入存档名:").pack(anchor="w")
         self._search_var = tk.StringVar()
-        vcmd = (self.register(self._validate_filename_input), "%P")
-        self._search_entry = ttk.Entry(
+        self._search_entry = SafeFilenameEntry(
             f,
             textvariable=self._search_var,
             width=30,
-            validate="key",
-            validatecommand=vcmd,
         )
         self._search_entry.pack(fill="x", pady=(2, 6))
 
@@ -236,6 +266,7 @@ class SaveDialog(tk.Toplevel):
         scrollbar.pack(side="right", fill="y")
         self._listbox.bind("<<ListboxSelect>>", self._on_select)
         self._listbox.bind("<Double-Button-1>", lambda e: self._confirm())
+        self._listbox.bind("<Button-3>", self._on_listbox_right_click)
 
         ttk.Label(f, text="选择已有 = 覆盖,  输入新名 = 新建").pack(pady=(4, 2))
 
@@ -288,13 +319,54 @@ class SaveDialog(tk.Toplevel):
         self._on_save(text)
         self.destroy()
 
-    def _validate_filename_input(self, proposed: str) -> bool:
-        """Entry validatecommand：输入时自动剥离非法字符"""
-        cleaned = sanitize_filename(proposed)
-        if cleaned != proposed:
-            self._search_var.set(cleaned)
-            return False
-        return True
+    # ── 右键菜单 ──────────────────────────────────────
+
+    def _on_listbox_right_click(self, event: tk.Event) -> None:
+        if self._on_delete is None and self._on_rename is None:
+            return
+        idx = self._listbox.nearest(event.y)
+        if idx < 0:
+            return
+        self._listbox.selection_clear(0, "end")
+        self._listbox.selection_set(idx)
+
+        menu = tk.Menu(self, tearoff=0)
+        if self._on_rename is not None:
+            menu.add_command(label="重命名", command=self._menu_rename)
+        if self._on_delete is not None:
+            menu.add_command(label="删除", command=self._menu_delete)
+        menu.post(event.x_root, event.y_root)
+
+    def _menu_rename(self) -> None:
+        sel = self._listbox.curselection()
+        if not sel:
+            return
+        old_name = self._listbox.get(sel[0])
+
+        def do_rename(new_name: str) -> None:
+            assert self._on_rename is not None
+            self._on_rename(old_name, new_name)
+            for s in self._saves:
+                if s["name"] == old_name:
+                    s["name"] = new_name
+                    break
+            self._refresh_list()
+
+        RenameDialog(self, old_name, do_rename)
+
+    def _menu_delete(self) -> None:
+        sel = self._listbox.curselection()
+        if not sel:
+            return
+        name = self._listbox.get(sel[0])
+        if not messagebox.askyesno(
+            "确认删除", f"确定删除存档「{name}」？此操作不可恢复", parent=self
+        ):
+            return
+        assert self._on_delete is not None
+        self._on_delete(name)
+        self._saves = [s for s in self._saves if s["name"] != name]
+        self._refresh_list()
 
 
 class LoadDialog(tk.Toplevel):
@@ -302,7 +374,12 @@ class LoadDialog(tk.Toplevel):
     独立顶层窗口，与主窗口无父子关系"""
 
     def __init__(
-        self, saves: list[SaveInfo], on_load: Callable, on_close: Callable | None = None
+        self,
+        saves: list[SaveInfo],
+        on_load: Callable,
+        on_close: Callable | None = None,
+        on_delete: Callable | None = None,
+        on_rename: Callable | None = None,
     ):
         super().__init__()
         self.title("快速读档")
@@ -312,6 +389,8 @@ class LoadDialog(tk.Toplevel):
         self._saves = saves
         self._on_load = on_load
         self._on_close = on_close
+        self._on_delete = on_delete
+        self._on_rename = on_rename
 
         self._build_ui()
         self._refresh_list()
@@ -361,6 +440,7 @@ class LoadDialog(tk.Toplevel):
         self._listbox.pack(side="left", fill="both", expand=True)
         scrollbar.pack(side="right", fill="y")
         self._listbox.bind("<Double-Button-1>", lambda e: self._confirm())
+        self._listbox.bind("<Button-3>", self._on_listbox_right_click)
 
         btn_frame = ttk.Frame(f)
         btn_frame.pack(pady=(6, 0))
@@ -377,6 +457,55 @@ class LoadDialog(tk.Toplevel):
             name = s["name"]
             if fuzzy_match(keyword, name):
                 self._listbox.insert("end", name)
+
+    # ── 右键菜单 ──────────────────────────────────────
+
+    def _on_listbox_right_click(self, event: tk.Event) -> None:
+        if self._on_delete is None and self._on_rename is None:
+            return
+        idx = self._listbox.nearest(event.y)
+        if idx < 0:
+            return
+        self._listbox.selection_clear(0, "end")
+        self._listbox.selection_set(idx)
+
+        menu = tk.Menu(self, tearoff=0)
+        if self._on_rename is not None:
+            menu.add_command(label="重命名", command=self._menu_rename)
+        if self._on_delete is not None:
+            menu.add_command(label="删除", command=self._menu_delete)
+        menu.post(event.x_root, event.y_root)
+
+    def _menu_rename(self) -> None:
+        sel = self._listbox.curselection()
+        if not sel:
+            return
+        old_name = self._listbox.get(sel[0])
+
+        def do_rename(new_name: str) -> None:
+            assert self._on_rename is not None
+            self._on_rename(old_name, new_name)
+            for s in self._saves:
+                if s["name"] == old_name:
+                    s["name"] = new_name
+                    break
+            self._refresh_list()
+
+        RenameDialog(self, old_name, do_rename)
+
+    def _menu_delete(self) -> None:
+        sel = self._listbox.curselection()
+        if not sel:
+            return
+        name = self._listbox.get(sel[0])
+        if not messagebox.askyesno(
+            "确认删除", f"确定删除存档「{name}」？此操作不可恢复", parent=self
+        ):
+            return
+        assert self._on_delete is not None
+        self._on_delete(name)
+        self._saves = [s for s in self._saves if s["name"] != name]
+        self._refresh_list()
 
     def destroy(self) -> None:
         """关闭窗口时回调 on_close，确保主窗口清理状态"""
@@ -423,13 +552,10 @@ class RenameDialog(tk.Toplevel):
 
         ttk.Label(f, text="新名称:").pack(anchor="w")
         self._var = tk.StringVar(value=old_name)
-        vcmd = (self.register(self._validate_filename_input), "%P")
-        entry = ttk.Entry(
+        entry = SafeFilenameEntry(
             f,
             textvariable=self._var,
             width=24,
-            validate="key",
-            validatecommand=vcmd,
         )
         entry.pack(fill="x", pady=(2, 6))
         entry.focus_set()
@@ -463,14 +589,6 @@ class RenameDialog(tk.Toplevel):
         self._on_rename(name)
         self.destroy()
 
-    def _validate_filename_input(self, proposed: str) -> bool:
-        """Entry validatecommand：输入时自动剥离非法字符"""
-        cleaned = sanitize_filename(proposed)
-        if cleaned != proposed:
-            self._var.set(cleaned)
-            return False
-        return True
-
 
 # ═══════════════════════════════════════════════════════════════
 # 手动添加账号对话框
@@ -500,13 +618,10 @@ class ManualAccountDialog(tk.Toplevel):
         # ── Steam ID ────────────────────────────────────
         ttk.Label(f, text="Steam ID:").pack(anchor="w")
         self._id_var = tk.StringVar()
-        vcmd_id = (self.register(self._validate_id_input), "%P")
-        self._id_entry = ttk.Entry(
+        self._id_entry = SafeFilenameEntry(
             f,
             textvariable=self._id_var,
             width=36,
-            validate="key",
-            validatecommand=vcmd_id,
         )
         self._id_entry.pack(fill="x", pady=(2, 8))
 
@@ -555,14 +670,6 @@ class ManualAccountDialog(tk.Toplevel):
         )
         if path:
             self._path_var.set(path)
-
-    def _validate_id_input(self, proposed: str) -> bool:
-        """Entry validatecommand：输入时自动剥离非法字符"""
-        cleaned = sanitize_filename(proposed)
-        if cleaned != proposed:
-            self._id_var.set(cleaned)
-            return False
-        return True
 
     def _confirm(self) -> None:
         steam_id = self._id_var.get().strip()
@@ -617,13 +724,10 @@ class CreateProfileDialog(tk.Toplevel):
 
         ttk.Label(f, text="分类名称:").pack(anchor="w")
         self._var = tk.StringVar()
-        vcmd = (self.register(self._validate_input), "%P")
-        entry = ttk.Entry(
+        entry = SafeFilenameEntry(
             f,
             textvariable=self._var,
             width=24,
-            validate="key",
-            validatecommand=vcmd,
         )
         entry.pack(fill="x", pady=(2, 6))
         entry.focus_set()
@@ -659,11 +763,3 @@ class CreateProfileDialog(tk.Toplevel):
             return
         self._on_confirm(name)
         self.destroy()
-
-    def _validate_input(self, proposed: str) -> bool:
-        """Entry validatecommand：输入时自动剥离非法字符"""
-        cleaned = sanitize_filename(proposed)
-        if cleaned != proposed:
-            self._var.set(cleaned)
-            return False
-        return True

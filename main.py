@@ -162,16 +162,8 @@ class App(tk.Tk):
         self._tree.pack(side="left", fill="both", expand=True)
         scrollbar.pack(side="right", fill="y")
 
-        # ── 操作按钮 ────────────────────────────────────
-        btn_frame = ttk.Frame(self, padding=(8, 0, 8, 4))
-        btn_frame.pack(fill="x")
-        ttk.Button(btn_frame, text="重命名", command=self._rename_selected).pack(
-            side="left",
-            padx=(0, 4),
-        )
-        ttk.Button(btn_frame, text="删除选中", command=self._delete_selected).pack(
-            side="left"
-        )
+        # 右键菜单
+        self._tree.bind("<Button-3>", self._on_tree_right_click)
 
         # ── 热键栏 ──────────────────────────────────────
         hotkey_frame = ttk.Frame(self, padding=(8, 4, 8, 8))
@@ -474,6 +466,26 @@ class App(tk.Tk):
                 delete_save(steam_id, profile, name)
             self._refresh_save_list()
 
+    def _on_tree_right_click(self, event: tk.Event) -> None:
+        """右键点击 Treeview：选中点击项并弹出菜单"""
+        item = self._tree.identify_row(event.y)
+        if not item:
+            return
+        # 若点击的项不在当前选中集合中，则单选它
+        if item not in self._tree.selection():
+            self._tree.selection_set(item)
+        self._show_tree_menu(event)
+
+    def _show_tree_menu(self, event: tk.Event) -> None:
+        names = self._get_selected_save_names()
+        if not names:
+            return
+        menu = tk.Menu(self, tearoff=0)
+        if len(names) == 1:
+            menu.add_command(label="重命名", command=self._rename_selected)
+        menu.add_command(label="删除", command=self._delete_selected)
+        menu.post(event.x_root, event.y_root)
+
     # ── 热键修改 ──────────────────────────────────────
 
     def _rebind_hotkey(self, which: Literal["save", "load"]) -> None:
@@ -550,6 +562,20 @@ class App(tk.Tk):
             else:
                 self._load_dialog = None
 
+        # 右键菜单回调（Save / Load 对话框共用）
+        def do_delete(name: str) -> None:
+            delete_save(steam_id, profile, name)
+            self._refresh_save_list()
+
+        def do_rename(old_name: str, new_name: str) -> None:
+            try:
+                rename_save(steam_id, profile, old_name, new_name)
+                self._refresh_save_list()
+            except FileExistsError:
+                messagebox.showerror("错误", f"存档「{new_name}」已存在")
+            except Exception as e:
+                messagebox.showerror("错误", f"重命名失败: {e}")
+
         if action == HotkeyAction.SAVE:
 
             def do_save(name: str) -> None:
@@ -557,11 +583,15 @@ class App(tk.Tk):
                     create_save(steam_id, profile, name, save_path)
                     self._refresh_save_list()
                 except Exception as e:
-                    assert self._save_dialog is not None  # 回调时对话框一定存在
+                    assert self._save_dialog is not None
                     messagebox.showerror("存档失败", str(e), parent=self._save_dialog)
 
             self._save_dialog = SaveDialog(
-                self._saves, do_save, on_close=on_dialog_close
+                self._saves,
+                do_save,
+                on_close=on_dialog_close,
+                on_delete=do_delete,
+                on_rename=do_rename,
             )
 
         elif action == HotkeyAction.LOAD:
@@ -577,11 +607,15 @@ class App(tk.Tk):
                     load_save(steam_id, profile, name, save_path)
                     self._refresh_save_list()
                 except Exception as e:
-                    assert self._load_dialog is not None  # 回调时对话框一定存在
+                    assert self._load_dialog is not None
                     messagebox.showerror("读档失败", str(e), parent=self._load_dialog)
 
             self._load_dialog = LoadDialog(
-                self._saves, do_load, on_close=on_dialog_close
+                self._saves,
+                do_load,
+                on_close=on_dialog_close,
+                on_delete=do_delete,
+                on_rename=do_rename,
             )
 
     # ── 关闭 ──────────────────────────────────────────
