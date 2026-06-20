@@ -13,29 +13,19 @@ _SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 DEFAULT_PROFILE = "默认"
 
 
-class ManualAccount(TypedDict):
-    """手动添加的账号信息"""
-
-    steam_id: str
-    save_path: str
-
-
 class AppConfig(TypedDict):
     save_hotkey: str
     load_hotkey: str
-    manual_accounts: list[ManualAccount]
 
 
 class AppConfigPartial(TypedDict, total=False):
     save_hotkey: str
     load_hotkey: str
-    manual_accounts: list[ManualAccount]
 
 
 _DEFAULT_CONFIG: AppConfig = {
     "save_hotkey": ",",
     "load_hotkey": ".",
-    "manual_accounts": [],
 }
 
 
@@ -61,20 +51,6 @@ def load_config() -> AppConfig:
         for key in ("save_hotkey", "load_hotkey"):
             if key in data and isinstance(data[key], str) and data[key].strip():
                 config[key] = data[key]
-        if "manual_accounts" in data and isinstance(data["manual_accounts"], list):
-            validated: list[ManualAccount] = []
-            for item in data["manual_accounts"]:
-                if (
-                    isinstance(item, dict)
-                    and isinstance(item.get("steam_id"), str)
-                    and isinstance(item.get("save_path"), str)
-                    and item["steam_id"].strip()
-                    and item["save_path"].strip()
-                ):
-                    validated.append(
-                        {"steam_id": item["steam_id"], "save_path": item["save_path"]}
-                    )
-            config["manual_accounts"] = validated
     return config
 
 
@@ -88,19 +64,57 @@ def save_config(partial: AppConfigPartial) -> None:
 
 
 # ═══════════════════════════════════════════════════════════════
-# 手动账号管理辅助函数
+# 一次性迁移 — 将旧版 config.json 中的 manual_accounts 转为 .savepath 文件
 # ═══════════════════════════════════════════════════════════════
 
 
-def load_manual_accounts() -> dict[str, str]:
-    """加载手动添加的账号，返回 {steam_id: save_path}"""
-    cfg = load_config()
-    return {a["steam_id"]: a["save_path"] for a in cfg["manual_accounts"]}
+def migrate_manual_accounts_from_config() -> None:
+    """将 config.json 中残留的 manual_accounts 迁移到 saves/<sid>/.savepath
 
+    这是从旧版本到 .savepath 方案的一次性迁移。
+    迁移完成后从 config.json 中删除 manual_accounts 字段。
+    """
+    path = _config_path()
+    if not os.path.isfile(path):
+        return
 
-def save_manual_accounts(accounts: dict[str, str]) -> None:
-    """持久化手动添加的账号"""
-    manual_list: list[ManualAccount] = [
-        {"steam_id": sid, "save_path": path} for sid, path in accounts.items()
-    ]
-    save_config({"manual_accounts": manual_list})
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+    except (json.JSONDecodeError, OSError):
+        return
+
+    if not isinstance(data, dict):
+        return
+
+    manual = data.get("manual_accounts")
+    if not isinstance(manual, list) or not manual:
+        return
+
+    saves_base = os.path.join(_SCRIPT_DIR, "saves")
+    migrated = 0
+    for item in manual:
+        if not (
+            isinstance(item, dict)
+            and isinstance(item.get("steam_id"), str)
+            and isinstance(item.get("save_path"), str)
+            and item["steam_id"].strip()
+            and item["save_path"].strip()
+        ):
+            continue
+        sid = item["steam_id"]
+        save_path = item["save_path"]
+        account_dir = os.path.join(saves_base, sid)
+        os.makedirs(account_dir, exist_ok=True)
+        marker = os.path.join(account_dir, ".savepath")
+        with open(marker, "w", encoding="utf-8") as f:
+            f.write(save_path)
+        migrated += 1
+
+    if not migrated:
+        return
+
+    # 从 config.json 中移除 manual_accounts
+    data.pop("manual_accounts", None)
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)

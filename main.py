@@ -9,9 +9,8 @@ from tkinter import messagebox, ttk
 from config import (
     DEFAULT_PROFILE,
     load_config,
-    load_manual_accounts,
+    migrate_manual_accounts_from_config,
     save_config,
-    save_manual_accounts,
 )
 from dialogs import (
     CreateProfileDialog,
@@ -32,7 +31,12 @@ from save_manager import (
     load_save,
     rename_save,
 )
-from steam_helper import AccountInfo, get_all_accounts
+from steam_helper import (
+    AccountInfo,
+    get_all_accounts,
+    remove_manual_account_marker,
+    set_manual_account,
+)
 from utils import fuzzy_match
 from typing import Literal
 
@@ -61,6 +65,9 @@ class App(tk.Tk):
         )
         self._save_dialog: SaveDialog | None = None
         self._load_dialog: LoadDialog | None = None
+
+        # ── 一次性迁移旧版 manual_accounts ────────────────
+        migrate_manual_accounts_from_config()
 
         # ── 构建界面 ────────────────────────────────────
         self._build_ui()
@@ -357,11 +364,7 @@ class App(tk.Tk):
         existing_ids = set(self._accounts.keys())
 
         def on_confirm(steam_id: str, save_path: str) -> None:
-            # 持久化
-            manual = load_manual_accounts()
-            manual[steam_id] = save_path
-            save_manual_accounts(manual)
-            # 刷新
+            set_manual_account(steam_id, save_path)
             self._load_accounts()
 
         with self._hotkey.suppressed():
@@ -385,9 +388,8 @@ class App(tk.Tk):
         if not confirmed:
             return
 
-        manual = load_manual_accounts()
-        manual.pop(sid, None)
-        save_manual_accounts(manual)
+        remove_manual_account_marker(sid)
+        # 如果该 steam_id 目录下没有其他 profile 目录了，清理空目录
         self._load_accounts()
 
     # ── 存档列表刷新 ──────────────────────────────────

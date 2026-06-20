@@ -6,7 +6,9 @@ import struct
 import winreg
 from typing import TypedDict
 
-from config import load_manual_accounts
+_SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+_SAVES_DIR = os.path.join(_SCRIPT_DIR, "saves")
+_SAVEPATH_FILE = ".savepath"
 
 
 class AccountInfo(TypedDict):
@@ -15,6 +17,58 @@ class AccountInfo(TypedDict):
     name: str  # 用户名，手动添加的为空字符串
     save_path: str  # 存档文件的完整路径
     is_manual: bool  # 是否为手动添加
+
+
+# ═══════════════════════════════════════════════════════════════
+# 手动账号 — .savepath 文件操作
+# ═══════════════════════════════════════════════════════════════
+
+
+def get_manual_accounts() -> dict[str, str]:
+    """扫描 saves/ 目录，返回所有手动添加的账号 {steam_id: save_path}
+
+    手动账号的特征是 saves/<steam_id>/.savepath 文件存在，
+    文件内容为存档路径。
+    """
+    result: dict[str, str] = {}
+    if not os.path.isdir(_SAVES_DIR):
+        return result
+    try:
+        for entry in os.scandir(_SAVES_DIR):
+            if entry.is_dir():
+                marker = os.path.join(entry.path, _SAVEPATH_FILE)
+                if os.path.isfile(marker):
+                    try:
+                        with open(marker, "r", encoding="utf-8") as f:
+                            save_path = f.read().strip()
+                        if save_path:
+                            result[entry.name] = save_path
+                    except OSError:
+                        pass
+    except OSError:
+        pass
+    return result
+
+
+def set_manual_account(steam_id: str, save_path: str) -> None:
+    """创建手动账号的 .savepath 标记文件"""
+    account_dir = os.path.join(_SAVES_DIR, steam_id)
+    os.makedirs(account_dir, exist_ok=True)
+    marker = os.path.join(account_dir, _SAVEPATH_FILE)
+    with open(marker, "w", encoding="utf-8") as f:
+        f.write(save_path)
+
+
+def remove_manual_account_marker(steam_id: str) -> None:
+    """删除手动账号的 .savepath 标记文件（不删除存档目录）"""
+    marker = os.path.join(_SAVES_DIR, steam_id, _SAVEPATH_FILE)
+    if os.path.isfile(marker):
+        os.remove(marker)
+
+
+# ═══════════════════════════════════════════════════════════════
+# Steam 自动检测
+# ═══════════════════════════════════════════════════════════════
 
 
 def get_steam_install_path() -> str | None:
@@ -99,8 +153,8 @@ def get_all_accounts() -> dict[str, AccountInfo]:
     """
     result: dict[str, AccountInfo] = {}
 
-    # ── 手动添加的账号 ──
-    for sid, save_path in load_manual_accounts().items():
+    # ── 手动添加的账号（通过 saves/ 下的 .savepath 标记文件识别）──
+    for sid, save_path in get_manual_accounts().items():
         result[sid] = AccountInfo(
             name="",
             save_path=save_path,
