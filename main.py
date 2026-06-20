@@ -428,7 +428,10 @@ class App(tk.Tk):
 
         elif action == HotkeyAction.LOAD:
             if not self._saves:
-                messagebox.showwarning("提示", "还没有任何存档，请先存档", parent=self)
+                with self._hotkey.suppressed():
+                    messagebox.showwarning(
+                        "提示", "还没有任何存档，请先存档", parent=self
+                    )
                 return
 
             def do_load(name: str) -> None:
