@@ -16,4 +16,4 @@ if %errorlevel% neq 0 (
     exit /b 1
 )
 
-start "" python "%~dp0main.py"
+start "" pythonw "%~dp0main.py"
