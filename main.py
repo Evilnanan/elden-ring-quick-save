@@ -532,35 +532,15 @@ class App(tk.Tk):
         if account is None:
             return
 
-        # ── 如果对应对话框已打开，则将其提到前台 ──────────
+        # ── 对话框已打开则忽略热键 ──────────────────────────
         if action == HotkeyAction.SAVE:
             if self._save_dialog is not None and self._save_dialog.winfo_exists():
-                self._save_dialog.bring_to_front()
                 return
         else:  # LOAD
             if self._load_dialog is not None and self._load_dialog.winfo_exists():
-                self._load_dialog.bring_to_front()
                 return
 
-        # ── 关闭另一个对话框（如果打开着） ──────────────────
-        if action == HotkeyAction.SAVE:
-            if self._load_dialog is not None:
-                if self._load_dialog.winfo_exists():
-                    self._load_dialog.destroy()
-                self._load_dialog = None
-        else:
-            if self._save_dialog is not None:
-                if self._save_dialog.winfo_exists():
-                    self._save_dialog.destroy()
-                self._save_dialog = None
-
         save_path = account["save_path"]
-
-        def on_dialog_close() -> None:
-            if action == HotkeyAction.SAVE:
-                self._save_dialog = None
-            else:
-                self._load_dialog = None
 
         # 右键菜单回调（Save / Load 对话框共用）
         def do_delete(name: str) -> None:
@@ -586,6 +566,14 @@ class App(tk.Tk):
                     assert self._save_dialog is not None
                     messagebox.showerror("存档失败", str(e), parent=self._save_dialog)
 
+            # ── 对话框期间屏蔽热键（与其他对话框行为一致） ──
+            _suppress_guard = self._hotkey.suppressed()
+            _suppress_guard.__enter__()
+
+            def on_dialog_close() -> None:
+                self._save_dialog = None
+                _suppress_guard.__exit__(None, None, None)
+
             self._save_dialog = SaveDialog(
                 self._saves,
                 do_save,
@@ -609,6 +597,14 @@ class App(tk.Tk):
                 except Exception as e:
                     assert self._load_dialog is not None
                     messagebox.showerror("读档失败", str(e), parent=self._load_dialog)
+
+            # ── 对话框期间屏蔽热键（与其他对话框行为一致） ──
+            _suppress_guard = self._hotkey.suppressed()
+            _suppress_guard.__enter__()
+
+            def on_dialog_close() -> None:
+                self._load_dialog = None
+                _suppress_guard.__exit__(None, None, None)
 
             self._load_dialog = LoadDialog(
                 self._saves,
