@@ -1,5 +1,6 @@
 """对话框：热键修改、存档、读档、重命名、手动添加账号"""
 
+import sys
 import tkinter as tk
 from collections.abc import Callable
 from tkinter import filedialog, messagebox, ttk
@@ -11,16 +12,66 @@ import keyboard
 from utils import fuzzy_match, key_display, sanitize_filename, validate_filename
 
 # ═══════════════════════════════════════════════════════════════
+# Windows 焦点抢占 — 绕过 SetForegroundWindow 限制
+# ═══════════════════════════════════════════════════════════════
+
+if sys.platform == "win32":
+    import ctypes as _ctypes
+
+    def _win32_force_focus(hwnd: int) -> bool:
+        """通过 AttachThreadInput 绕过 Windows 焦点抢占限制
+
+        Windows 默认禁止后台进程使用 SetForegroundWindow 抢夺焦点。
+        短暂将当前线程附加到前台线程的输入队列后，即可合法转移焦点。
+
+        返回 True 表示成功；返回 False 时调用方可回退到 focus_force()。
+        """
+        try:
+            user32 = _ctypes.windll.user32
+            kernel32 = _ctypes.windll.kernel32
+
+            if hwnd == user32.GetForegroundWindow():
+                return True  # 已在前台，无需操作
+
+            current_thread = kernel32.GetCurrentThreadId()
+            foreground_thread = user32.GetWindowThreadProcessId(
+                user32.GetForegroundWindow(), None
+            )
+
+            attached = False
+            if current_thread != foreground_thread:
+                user32.AttachThreadInput(current_thread, foreground_thread, True)
+                attached = True
+
+            # SW_SHOW = 5 — 激活并显示窗口
+            user32.ShowWindow(hwnd, 5)
+            user32.SetForegroundWindow(hwnd)
+            user32.SetFocus(hwnd)
+
+            if attached:
+                user32.AttachThreadInput(current_thread, foreground_thread, False)
+            return True
+        except Exception:
+            return False
+
+else:
+
+    def _win32_force_focus(hwnd: int) -> bool:
+        return False
+
+
+# ═══════════════════════════════════════════════════════════════
 # 工具函数
 # ═══════════════════════════════════════════════════════════════
 
 
 def bring_to_front(dlg: tk.Toplevel) -> None:
-    """临时 topmost 后取消，确保对话框能出现在顶层"""
+    """将对话框提至前台并聚焦"""
     dlg.lift()
     dlg.attributes("-topmost", True)
     dlg.after(0, lambda: dlg.attributes("-topmost", False))
-    dlg.focus_force()
+    if not _win32_force_focus(dlg.winfo_id()):
+        dlg.focus_force()  # AttachThreadInput 失败时回退
 
 
 # ═══════════════════════════════════════════════════════════════
