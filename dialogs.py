@@ -588,3 +588,82 @@ class ManualAccountDialog(tk.Toplevel):
 
         self._on_confirm(steam_id, save_path)
         self.destroy()
+
+
+# ═══════════════════════════════════════════════════════════════
+# 新建分类（Profile）对话框
+# ═══════════════════════════════════════════════════════════════
+
+
+class CreateProfileDialog(tk.Toplevel):
+    """新建分类对话框：输入 profile 名称，校验文件名合法性"""
+
+    def __init__(
+        self,
+        parent,
+        existing_names: set[str],
+        on_confirm: Callable[[str], None],
+    ) -> None:
+        super().__init__(parent)
+        self.title("新建分类")
+        self.resizable(False, False)
+        self.transient(parent)
+        self.grab_set()
+        self._existing_names = existing_names
+        self._on_confirm = on_confirm
+
+        f = ttk.Frame(self, padding=12)
+        f.pack()
+
+        ttk.Label(f, text="分类名称:").pack(anchor="w")
+        self._var = tk.StringVar()
+        vcmd = (self.register(self._validate_input), "%P")
+        entry = ttk.Entry(
+            f,
+            textvariable=self._var,
+            width=24,
+            validate="key",
+            validatecommand=vcmd,
+        )
+        entry.pack(fill="x", pady=(2, 6))
+        entry.focus_set()
+
+        btn_frame = ttk.Frame(f)
+        btn_frame.pack(pady=(4, 0))
+        ttk.Button(btn_frame, text="确定", command=self._confirm).pack(
+            side="left", padx=4
+        )
+        ttk.Button(btn_frame, text="取消", command=self.destroy).pack(
+            side="left", padx=4
+        )
+
+        self.bind("<Return>", lambda e: self._confirm())
+        self.bind("<Escape>", lambda e: self.destroy())
+        self.protocol("WM_DELETE_WINDOW", self.destroy)
+
+        self.update_idletasks()
+        w, h = self.winfo_width(), self.winfo_height()
+        self.geometry(f"{w}x{h}+{parent.winfo_x() + 60}+{parent.winfo_y() + 60}")
+
+    def _confirm(self) -> None:
+        name = self._var.get().strip()
+        if not name:
+            messagebox.showwarning("提示", "分类名称不能为空", parent=self)
+            return
+        err = validate_filename(name)
+        if err:
+            messagebox.showwarning("提示", err, parent=self)
+            return
+        if name in self._existing_names:
+            messagebox.showwarning("提示", f"分类「{name}」已存在", parent=self)
+            return
+        self._on_confirm(name)
+        self.destroy()
+
+    def _validate_input(self, proposed: str) -> bool:
+        """Entry validatecommand：输入时自动剥离非法字符"""
+        cleaned = sanitize_filename(proposed)
+        if cleaned != proposed:
+            self._var.set(cleaned)
+            return False
+        return True

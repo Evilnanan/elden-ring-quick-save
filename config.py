@@ -9,6 +9,9 @@ from typing import TypedDict
 
 _SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 
+# 默认 profile 名称
+DEFAULT_PROFILE = "默认"
+
 
 class ManualAccount(TypedDict):
     """手动添加的账号信息"""

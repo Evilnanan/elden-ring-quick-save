@@ -1,12 +1,20 @@
 """Elden Ring 快速 SL 工具 — Tkinter 主界面"""
 
+import os
 import queue
 import tkinter as tk
 from datetime import datetime
 from tkinter import messagebox, ttk
 
-from config import load_config, load_manual_accounts, save_config, save_manual_accounts
+from config import (
+    DEFAULT_PROFILE,
+    load_config,
+    load_manual_accounts,
+    save_config,
+    save_manual_accounts,
+)
 from dialogs import (
+    CreateProfileDialog,
     HotkeyRebindDialog,
     LoadDialog,
     ManualAccountDialog,
@@ -17,7 +25,9 @@ from hotkey import HotkeyAction, HotkeyManager
 from save_manager import (
     SaveInfo,
     create_save,
+    delete_profile,
     delete_save,
+    list_profiles,
     list_saves,
     load_save,
     rename_save,
@@ -36,12 +46,13 @@ class App(tk.Tk):
         super().__init__()
         self.title("老头环快速SL工具")
         self.resizable(True, True)
-        self.minsize(480, 340)
+        self.minsize(480, 380)
 
         # ── 状态 ────────────────────────────────────────
         self._accounts: dict[str, AccountInfo] = {}  # steam_id → AccountInfo
         self._display_to_id: dict[str, str] = {}  # 下拉框显示 → steam_id
         self._current_steam_id: str | None = None
+        self._current_profile: str = DEFAULT_PROFILE
         self._saves: list[SaveInfo] = []
         cfg = load_config()
         self._hotkey = HotkeyManager(
@@ -89,6 +100,29 @@ class App(tk.Tk):
             command=self._remove_manual_account,
         )
         self._remove_manual_btn.pack(side="left", padx=(2, 0))
+
+        # ── 第二行: Profile 分类选择 ────────────────────
+        profile_frame = ttk.Frame(self, padding=(8, 4, 8, 0))
+        profile_frame.pack(fill="x")
+
+        ttk.Label(profile_frame, text="分类:").pack(side="left")
+        self._profile_var = tk.StringVar()
+        self._profile_combo = ttk.Combobox(
+            profile_frame,
+            textvariable=self._profile_var,
+            state="readonly",
+            width=34,
+        )
+        self._profile_combo.pack(side="left", padx=8, pady=4)
+        self._profile_combo.bind("<<ComboboxSelected>>", self._on_profile_changed)
+        self._remove_profile_btn = ttk.Button(
+            profile_frame,
+            text="✕",
+            width=3,
+            state="disabled",
+            command=self._remove_profile,
+        )
+        self._remove_profile_btn.pack(side="left", padx=(2, 0))
 
         # ── 搜索 ────────────────────────────────────────
         search_frame = ttk.Frame(self, padding=(8, 6, 8, 0))
@@ -190,7 +224,7 @@ class App(tk.Tk):
             displays.append(label)
 
         # 末尾追加"添加"入口
-        displays.append(self._ADD_ENTRY)
+        displays.append(self._ADD_ACCOUNT_ENTRY)
         self._steam_combo["values"] = displays
         if self._accounts:
             self._steam_var.set(displays[0])
@@ -198,13 +232,15 @@ class App(tk.Tk):
         else:
             self._steam_var.set("")
             self._current_steam_id = None
+            self._load_profiles()
             self._refresh_save_list()
 
-    _ADD_ENTRY = "—— 添加 ——"
+    _ADD_ACCOUNT_ENTRY = "—— 添加 ——"
+    _ADD_PROFILE_ENTRY = "—— 新建 ——"
 
     def _on_account_changed(self, event=None) -> None:
         display = self._steam_var.get()
-        if display == self._ADD_ENTRY:
+        if display == self._ADD_ACCOUNT_ENTRY:
             # 还原为上次选中的账号
             prev = self._current_steam_id or ""
             prev_display = next(
@@ -221,7 +257,106 @@ class App(tk.Tk):
             self._remove_manual_btn.config(state="normal")
         else:
             self._remove_manual_btn.config(state="disabled")
+        self._load_profiles()
+
+    # ── Profile 分类管理 ──────────────────────────────
+
+    def _load_profiles(self) -> None:
+        """刷新 profile 下拉框，按最近活动时间排序，默认选中最活跃的"""
+        sid = self._current_steam_id
+        if not sid:
+            self._profile_combo["values"] = []
+            self._profile_var.set("")
+            self._current_profile = DEFAULT_PROFILE
+            self._remove_profile_btn.config(state="disabled")
+            self._refresh_save_list()
+            return
+
+        # 从磁盘扫描已有 profile，已按最近活动时间降序排列
+        dir_profiles = list_profiles(sid)
+
+        # "默认"始终在列表最前（若磁盘上尚不存在则手动补上）
+        if DEFAULT_PROFILE in dir_profiles:
+            others = [p for p in dir_profiles if p != DEFAULT_PROFILE]
+        else:
+            others = dir_profiles
+        values = [DEFAULT_PROFILE] + others + [self._ADD_PROFILE_ENTRY]
+
+        # 当前选中：最活跃的那个
+        current = dir_profiles[0] if dir_profiles else DEFAULT_PROFILE
+
+        self._profile_combo["values"] = values
+        self._profile_var.set(current)
+        self._current_profile = current
+        self._update_profile_btn_state()
         self._refresh_save_list()
+
+    def _update_profile_btn_state(self) -> None:
+        """「默认」profile 不允许删除"""
+        if self._current_profile == DEFAULT_PROFILE:
+            self._remove_profile_btn.config(state="disabled")
+        else:
+            self._remove_profile_btn.config(state="normal")
+
+    def _on_profile_changed(self, event=None) -> None:
+        display = self._profile_var.get()
+        if display == self._ADD_PROFILE_ENTRY:
+            # 还原为上次选中的 profile
+            prev = self._current_profile
+            self._profile_var.set(prev)
+            self._create_profile()
+            return
+
+        if not self._current_steam_id:
+            return
+
+        self._current_profile = display or DEFAULT_PROFILE
+        self._update_profile_btn_state()
+        self._refresh_save_list()
+
+    def _remove_profile(self) -> None:
+        """删除当前选中的 profile 及其中所有存档"""
+        sid = self._current_steam_id
+        profile = self._current_profile
+        if not sid or profile == DEFAULT_PROFILE:
+            return
+
+        with self._hotkey.suppressed():
+            confirmed = messagebox.askyesno(
+                "确认删除",
+                f"确定删除分类「{profile}」及其中的所有存档？\n此操作不可恢复",
+            )
+        if not confirmed:
+            return
+
+        delete_profile(sid, profile)
+        self._load_profiles()
+
+    def _create_profile(self) -> None:
+        """弹出对话框新建分类，直接在磁盘上创建目录"""
+        sid = self._current_steam_id
+        if not sid:
+            return
+
+        # 收集已有 profile 名称（用于重名校验）
+        existing: set[str] = {DEFAULT_PROFILE}
+        existing.update(list_profiles(sid))
+
+        def on_confirm(name: str) -> None:
+            # 在磁盘上创建空目录
+            save_dir = os.path.join(
+                os.path.dirname(os.path.abspath(__file__)), "saves", sid, name
+            )
+            os.makedirs(save_dir, exist_ok=True)
+            # 刷新列表并选中新 profile
+            self._load_profiles()
+            self._profile_var.set(name)
+            self._current_profile = name
+            self._refresh_save_list()
+
+        with self._hotkey.suppressed():
+            dlg = CreateProfileDialog(self, existing, on_confirm)
+            self.wait_window(dlg)
 
     # ── 手动添加 / 删除账号 ──────────────────────────
 
@@ -273,7 +408,7 @@ class App(tk.Tk):
             self._saves = []
             return
 
-        self._saves = list_saves(self._current_steam_id)
+        self._saves = list_saves(self._current_steam_id, self._current_profile)
         keyword = self._search_var.get()
 
         for s in self._saves:
@@ -303,11 +438,12 @@ class App(tk.Tk):
         if not names:
             return
         steam_id = self._current_steam_id
+        profile = self._current_profile
         old_name = names[0]
 
         def do_rename(new_name: str) -> None:
             try:
-                rename_save(steam_id, old_name, new_name)
+                rename_save(steam_id, profile, old_name, new_name)
                 self._refresh_save_list()
             except FileExistsError:
                 messagebox.showerror("错误", f"存档「{new_name}」已存在，请换一个名称")
@@ -325,6 +461,7 @@ class App(tk.Tk):
         if not names:
             return
         steam_id = self._current_steam_id
+        profile = self._current_profile
         with self._hotkey.suppressed():
             if len(names) == 1:
                 msg = f"确定删除存档「{names[0]}」？此操作不可恢复"
@@ -334,7 +471,7 @@ class App(tk.Tk):
             confirmed = messagebox.askyesno("确认删除", msg)
         if confirmed:
             for name in names:
-                delete_save(steam_id, name)
+                delete_save(steam_id, profile, name)
             self._refresh_save_list()
 
     # ── 热键修改 ──────────────────────────────────────
@@ -378,6 +515,7 @@ class App(tk.Tk):
             return
 
         steam_id = self._current_steam_id
+        profile = self._current_profile
         account = self._accounts.get(steam_id)
         if account is None:
             return
@@ -416,7 +554,7 @@ class App(tk.Tk):
 
             def do_save(name: str) -> None:
                 try:
-                    create_save(steam_id, name, save_path)
+                    create_save(steam_id, profile, name, save_path)
                     self._refresh_save_list()
                 except Exception as e:
                     assert self._save_dialog is not None  # 回调时对话框一定存在
@@ -436,7 +574,7 @@ class App(tk.Tk):
 
             def do_load(name: str) -> None:
                 try:
-                    load_save(steam_id, name, save_path)
+                    load_save(steam_id, profile, name, save_path)
                     self._refresh_save_list()
                 except Exception as e:
                     assert self._load_dialog is not None  # 回调时对话框一定存在
