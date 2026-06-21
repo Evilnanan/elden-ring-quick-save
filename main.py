@@ -59,7 +59,7 @@ class App(tk.Tk):
         super().__init__()
         self.title("老头环快速SL工具")
         self.resizable(True, True)
-        self.minsize(480, 380)
+        self.minsize(420, 300)
 
         # ── 状态 ────────────────────────────────────────
         self._accounts: dict[str, AccountInfo] = {}  # steam_id → AccountInfo
@@ -98,29 +98,13 @@ class App(tk.Tk):
             top_frame,
             textvariable=self._steam_var,
             state="readonly",
-            width=41,
         )
-        self._steam_combo.pack(side="left", padx=8, pady=4)
+        self._steam_combo.pack(side="left", padx=8, pady=4, fill="x", expand=True)
         self._steam_combo.bind("<<ComboboxSelected>>", self._on_account_changed)
+        self._steam_combo.bind("<Button-3>", self._on_account_right_click)
         ttk.Button(top_frame, text="↻", width=3, command=self._load_accounts).pack(
             side="left", padx=(2, 0)
         )
-        self._remove_manual_btn = ttk.Button(
-            top_frame,
-            text="✕",
-            width=3,
-            state="disabled",
-            command=self._remove_manual_account,
-        )
-        self._remove_manual_btn.pack(side="left", padx=(2, 0))
-        self._rename_manual_btn = ttk.Button(
-            top_frame,
-            text="≡",
-            width=3,
-            state="disabled",
-            command=self._rename_manual_account,
-        )
-        self._rename_manual_btn.pack(side="left", padx=(2, 0))
 
         # ── 第二行: Profile 分类选择 ────────────────────
         profile_frame = ttk.Frame(self, padding=(8, 4, 8, 0))
@@ -132,37 +116,22 @@ class App(tk.Tk):
             profile_frame,
             textvariable=self._profile_var,
             state="readonly",
-            width=34,
         )
-        self._profile_combo.pack(side="left", padx=8, pady=4)
+        self._profile_combo.pack(side="left", padx=8, pady=4, fill="x", expand=True)
         self._profile_combo.bind("<<ComboboxSelected>>", self._on_profile_changed)
-        self._remove_profile_btn = ttk.Button(
-            profile_frame,
-            text="✕",
-            width=3,
-            state="disabled",
-            command=self._remove_profile,
-        )
-        self._remove_profile_btn.pack(side="left", padx=(2, 0))
-        self._rename_profile_btn = ttk.Button(
-            profile_frame,
-            text="≡",
-            width=3,
-            state="disabled",
-            command=self._rename_profile,
-        )
-        self._rename_profile_btn.pack(side="left", padx=(2, 0))
+        self._profile_combo.bind("<Button-3>", self._on_profile_right_click)
 
-        # ── 搜索 ────────────────────────────────────────
-        search_frame = ttk.Frame(self, padding=(8, 6, 8, 0))
-        search_frame.pack(fill="x")
-        ttk.Label(search_frame, text="搜索:").pack(side="left")
+        # ── 搜索（默认隐藏，Ctrl+F 切换）──────────────────
+        self._search_frame = ttk.Frame(self, padding=(8, 6, 8, 0))
+        ttk.Label(self._search_frame, text="搜索:").pack(side="left")
         self._search_var = tk.StringVar()
         self._search_entry = ttk.Entry(
-            search_frame, textvariable=self._search_var, width=24
+            self._search_frame,
+            textvariable=self._search_var,
         )
-        self._search_entry.pack(side="left", padx=8, pady=4)
+        self._search_entry.pack(side="left", padx=8, pady=4, fill="x", expand=True)
         self._search_var.trace_add("write", lambda *_: self._refresh_save_list())
+        self.bind("<Control-f>", self._toggle_search)
 
         # ── 存档列表 ────────────────────────────────────
         list_frame = ttk.Frame(self, padding=(8, 4, 8, 4))
@@ -179,9 +148,9 @@ class App(tk.Tk):
         self._tree.heading("name", text="存档名称")
         self._tree.heading("atime", text="读取时间")
         self._tree.heading("mtime", text="保存时间")
-        self._tree.column("name", width=200, minwidth=100)
-        self._tree.column("atime", width=120, minwidth=75)
-        self._tree.column("mtime", width=120, minwidth=75)
+        self._tree.column("name", width=140, minwidth=100)
+        self._tree.column("atime", width=100, minwidth=75)
+        self._tree.column("mtime", width=100, minwidth=75)
 
         scrollbar = ttk.Scrollbar(
             list_frame, orient="vertical", command=self._tree.yview
@@ -328,13 +297,6 @@ class App(tk.Tk):
 
         sid = self._display_to_id.get(display)
         self._current_steam_id = sid
-        info = self._accounts.get(sid) if sid else None
-        if info and info["is_manual"]:
-            self._remove_manual_btn.config(state="normal")
-            self._rename_manual_btn.config(state="normal")
-        else:
-            self._remove_manual_btn.config(state="disabled")
-            self._rename_manual_btn.config(state="disabled")
         self._load_profiles()
         self._refresh_readonly_state()
 
@@ -347,8 +309,6 @@ class App(tk.Tk):
             self._profile_combo["values"] = []
             self._profile_var.set("")
             self._current_profile = DEFAULT_PROFILE
-            self._remove_profile_btn.config(state="disabled")
-            self._rename_profile_btn.config(state="disabled")
             self._refresh_save_list()
             return
 
@@ -368,17 +328,7 @@ class App(tk.Tk):
         self._profile_combo["values"] = values
         self._profile_var.set(current)
         self._current_profile = current
-        self._update_profile_btn_state()
         self._refresh_save_list()
-
-    def _update_profile_btn_state(self) -> None:
-        """「默认」profile 不允许删除和重命名"""
-        if self._current_profile == DEFAULT_PROFILE:
-            self._remove_profile_btn.config(state="disabled")
-            self._rename_profile_btn.config(state="disabled")
-        else:
-            self._remove_profile_btn.config(state="normal")
-            self._rename_profile_btn.config(state="normal")
 
     def _on_profile_changed(self, event=None) -> None:
         display = self._profile_var.get()
@@ -393,7 +343,6 @@ class App(tk.Tk):
             return
 
         self._current_profile = display or DEFAULT_PROFILE
-        self._update_profile_btn_state()
         self._refresh_save_list()
 
     def _remove_profile(self) -> None:
@@ -571,6 +520,27 @@ class App(tk.Tk):
         menu.add_command(label="删除", command=self._delete_selected)
         menu.post(event.x_root, event.y_root)
 
+    # ── 账号 / 分类右键菜单 ───────────────────────────
+
+    def _on_account_right_click(self, event: tk.Event) -> None:
+        """账号 Combobox 右键菜单 — 仅手动账号可删除/重命名"""
+        info = self._accounts.get(self._current_steam_id or "")
+        if info is None or not info["is_manual"]:
+            return
+        menu = tk.Menu(self, tearoff=0)
+        menu.add_command(label="重命名", command=self._rename_manual_account)
+        menu.add_command(label="删除", command=self._remove_manual_account)
+        menu.post(event.x_root, event.y_root)
+
+    def _on_profile_right_click(self, event: tk.Event) -> None:
+        """分类 Combobox 右键菜单 — 「默认」分类不可操作"""
+        if not self._current_steam_id or self._current_profile == DEFAULT_PROFILE:
+            return
+        menu = tk.Menu(self, tearoff=0)
+        menu.add_command(label="重命名", command=self._rename_profile)
+        menu.add_command(label="删除", command=self._remove_profile)
+        menu.post(event.x_root, event.y_root)
+
     # ── 手动账号重命名 ────────────────────────────────
 
     def _rename_manual_account(self) -> None:
@@ -616,6 +586,19 @@ class App(tk.Tk):
         with self._hotkey.suppressed():
             dlg = RenameDialog(self, profile, do_rename, title="重命名分类")
             self.wait_window(dlg)
+
+    # ── 搜索栏切换 ──────────────────────────────────
+
+    def _toggle_search(self, event: tk.Event | None = None) -> None:
+        """Ctrl+F 切换搜索栏显示/隐藏"""
+        if self._search_frame.winfo_ismapped():
+            self._search_frame.pack_forget()
+            self._search_var.set("")  # 隐藏时清空搜索词
+        else:
+            self._search_frame.pack(
+                fill="x",
+                before=self._tree.master,  # 插入到存档列表之前
+            )
 
     # ── 热键修改 ──────────────────────────────────────
 
