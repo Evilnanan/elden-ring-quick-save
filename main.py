@@ -63,8 +63,6 @@ class App(tk.Tk):
             save_hotkey=cfg["save_hotkey"],
             load_hotkey=cfg["load_hotkey"],
         )
-        self._save_dialog: SaveDialog | None = None
-        self._load_dialog: LoadDialog | None = None
 
         # ── 一次性迁移旧版 manual_accounts ────────────────
         migrate_manual_accounts_from_config()
@@ -534,14 +532,6 @@ class App(tk.Tk):
         if account is None:
             return
 
-        # ── 对话框已打开则忽略热键 ──────────────────────────
-        if action == HotkeyAction.SAVE:
-            if self._save_dialog is not None and self._save_dialog.winfo_exists():
-                return
-        else:  # LOAD
-            if self._load_dialog is not None and self._load_dialog.winfo_exists():
-                return
-
         save_path = account["save_path"]
 
         # 右键菜单回调（Save / Load 对话框共用）
@@ -559,30 +549,24 @@ class App(tk.Tk):
                 messagebox.showerror("错误", f"重命名失败: {e}")
 
         if action == HotkeyAction.SAVE:
+            _save_dlg_ref: list[SaveDialog] = []
 
             def do_save(name: str) -> None:
                 try:
                     create_save(steam_id, profile, name, save_path)
                     self._refresh_save_list()
                 except Exception as e:
-                    assert self._save_dialog is not None
-                    messagebox.showerror("存档失败", str(e), parent=self._save_dialog)
+                    messagebox.showerror("存档失败", str(e), parent=_save_dlg_ref[0])
 
-            # ── 对话框期间屏蔽热键（与其他对话框行为一致） ──
-            _suppress_guard = self._hotkey.suppressed()
-            _suppress_guard.__enter__()
-
-            def on_dialog_close() -> None:
-                self._save_dialog = None
-                _suppress_guard.__exit__(None, None, None)
-
-            self._save_dialog = SaveDialog(
-                self._saves,
-                do_save,
-                on_close=on_dialog_close,
-                on_delete=do_delete,
-                on_rename=do_rename,
-            )
+            with self._hotkey.suppressed():
+                save_dlg = SaveDialog(
+                    self._saves,
+                    do_save,
+                    on_delete=do_delete,
+                    on_rename=do_rename,
+                )
+                _save_dlg_ref.append(save_dlg)
+                self.wait_window(save_dlg)
 
         elif action == HotkeyAction.LOAD:
             if not self._saves:
@@ -592,29 +576,24 @@ class App(tk.Tk):
                     )
                 return
 
+            _load_dlg_ref: list[LoadDialog] = []
+
             def do_load(name: str) -> None:
                 try:
                     load_save(steam_id, profile, name, save_path)
                     self._refresh_save_list()
                 except Exception as e:
-                    assert self._load_dialog is not None
-                    messagebox.showerror("读档失败", str(e), parent=self._load_dialog)
+                    messagebox.showerror("读档失败", str(e), parent=_load_dlg_ref[0])
 
-            # ── 对话框期间屏蔽热键（与其他对话框行为一致） ──
-            _suppress_guard = self._hotkey.suppressed()
-            _suppress_guard.__enter__()
-
-            def on_dialog_close() -> None:
-                self._load_dialog = None
-                _suppress_guard.__exit__(None, None, None)
-
-            self._load_dialog = LoadDialog(
-                self._saves,
-                do_load,
-                on_close=on_dialog_close,
-                on_delete=do_delete,
-                on_rename=do_rename,
-            )
+            with self._hotkey.suppressed():
+                load_dlg = LoadDialog(
+                    self._saves,
+                    do_load,
+                    on_delete=do_delete,
+                    on_rename=do_rename,
+                )
+                _load_dlg_ref.append(load_dlg)
+                self.wait_window(load_dlg)
 
     # ── 关闭 ──────────────────────────────────────────
 
