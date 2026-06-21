@@ -156,6 +156,22 @@ def delete_profile(steam_id: str, profile: str) -> bool:
     return False
 
 
+def is_readonly(path: str) -> bool:
+    """检查游戏存档文件是否只读"""
+    return os.path.isfile(path) and not os.access(path, os.W_OK)
+
+
+def set_readonly(path: str, readonly: bool) -> None:
+    """设置游戏存档文件只读状态"""
+    if not os.path.isfile(path):
+        raise FileNotFoundError(f"游戏存档不存在: {path}")
+    current = os.stat(path).st_mode
+    if readonly:
+        os.chmod(path, current & ~0o200)  # 移除 owner write 位 → 只读
+    else:
+        os.chmod(path, current | 0o200)  # 加回 owner write 位 → 可写
+
+
 def rename_save(steam_id: str, profile: str, old_name: str, new_name: str) -> bool:
     """重命名存档"""
     old_path = os.path.join(_saves_dir(steam_id, profile), f"{old_name}.sl2")

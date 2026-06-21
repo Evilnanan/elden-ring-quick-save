@@ -15,19 +15,28 @@ import keyboard
 class HotkeyAction(Enum):
     SAVE = "save"
     LOAD = "load"
+    TOGGLE_READONLY = "toggle_readonly"
 
 
 class HotkeyManager:
     """管理全局热键注册、修改与取消"""
 
-    def __init__(self, save_hotkey: str = ",", load_hotkey: str = ".") -> None:
+    def __init__(
+        self,
+        save_hotkey: str = ",",
+        load_hotkey: str = ".",
+        toggle_readonly_hotkey: str = "/",
+    ) -> None:
         self._save_hotkey = save_hotkey
         self._load_hotkey = load_hotkey
+        self._toggle_readonly_hotkey = toggle_readonly_hotkey
         self._queue: queue.Queue[HotkeyAction] = queue.Queue()
         self._running = False
         self._suppress_count = 0
+        self._enabled = True
         self._save_handle: Callable[[], None] | None = None
         self._load_handle: Callable[[], None] | None = None
+        self._toggle_readonly_handle: Callable[[], None] | None = None
 
     # ── 属性 ────────────────────────────────────────────
 
@@ -40,8 +49,20 @@ class HotkeyManager:
         return self._load_hotkey
 
     @property
+    def toggle_readonly_hotkey(self) -> str:
+        return self._toggle_readonly_hotkey
+
+    @property
     def event_queue(self) -> queue.Queue:
         return self._queue
+
+    @property
+    def enabled(self) -> bool:
+        return self._enabled
+
+    def set_enabled(self, enabled: bool) -> None:
+        """全局热键开关"""
+        self._enabled = enabled
 
     # ── 热键修改 ────────────────────────────────────────
 
@@ -72,6 +93,22 @@ class HotkeyManager:
             except Exception:
                 pass
         self._load_handle = keyboard.add_hotkey(self._load_hotkey, self._on_load)
+
+    def set_toggle_readonly_hotkey(self, key: str) -> None:
+        """修改只读切换热键，运行中即时生效"""
+        self._toggle_readonly_hotkey = key
+        if self._running:
+            self._rehook_toggle_readonly()
+
+    def _rehook_toggle_readonly(self) -> None:
+        if self._toggle_readonly_handle is not None:
+            try:
+                keyboard.remove_hotkey(self._toggle_readonly_handle)
+            except Exception:
+                pass
+        self._toggle_readonly_handle = keyboard.add_hotkey(
+            self._toggle_readonly_hotkey, self._on_toggle_readonly
+        )
 
     # ── 屏蔽 ──────────────────────────────────────────
 
@@ -105,6 +142,9 @@ class HotkeyManager:
 
         self._save_handle = keyboard.add_hotkey(self._save_hotkey, self._on_save)
         self._load_handle = keyboard.add_hotkey(self._load_hotkey, self._on_load)
+        self._toggle_readonly_handle = keyboard.add_hotkey(
+            self._toggle_readonly_hotkey, self._on_toggle_readonly
+        )
 
     def stop(self) -> None:
         """移除所有热键"""
@@ -115,11 +155,16 @@ class HotkeyManager:
             pass
         self._save_handle = None
         self._load_handle = None
+        self._toggle_readonly_handle = None
 
     def _on_save(self) -> None:
-        if self._suppress_count == 0:
+        if self._enabled and self._suppress_count == 0:
             self._queue.put(HotkeyAction.SAVE)
 
     def _on_load(self) -> None:
-        if self._suppress_count == 0:
+        if self._enabled and self._suppress_count == 0:
             self._queue.put(HotkeyAction.LOAD)
+
+    def _on_toggle_readonly(self) -> None:
+        if self._enabled and self._suppress_count == 0:
+            self._queue.put(HotkeyAction.TOGGLE_READONLY)

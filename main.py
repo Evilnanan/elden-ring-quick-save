@@ -2,7 +2,13 @@
 
 import os
 import queue
+import sys
 import tkinter as tk
+
+if sys.platform == "win32":
+    import winsound
+else:
+    winsound = None  # type: ignore[assignment]
 from datetime import datetime
 from tkinter import messagebox, ttk
 
@@ -26,10 +32,12 @@ from save_manager import (
     create_save,
     delete_profile,
     delete_save,
+    is_readonly,
     list_profiles,
     list_saves,
     load_save,
     rename_save,
+    set_readonly,
 )
 from steam_helper import (
     AccountInfo,
@@ -62,6 +70,7 @@ class App(tk.Tk):
         self._hotkey = HotkeyManager(
             save_hotkey=cfg["save_hotkey"],
             load_hotkey=cfg["load_hotkey"],
+            toggle_readonly_hotkey=cfg["toggle_readonly_hotkey"],
         )
 
         # ── 一次性迁移旧版 manual_accounts ────────────────
@@ -90,12 +99,12 @@ class App(tk.Tk):
             top_frame,
             textvariable=self._steam_var,
             state="readonly",
-            width=34,
+            width=36,
         )
         self._steam_combo.pack(side="left", padx=8, pady=4)
         self._steam_combo.bind("<<ComboboxSelected>>", self._on_account_changed)
-        ttk.Button(top_frame, text="刷新", command=self._load_accounts).pack(
-            side="left"
+        ttk.Button(top_frame, text="↻", width=3, command=self._load_accounts).pack(
+            side="left", padx=(2, 0)
         )
         self._remove_manual_btn = ttk.Button(
             top_frame,
@@ -105,6 +114,13 @@ class App(tk.Tk):
             command=self._remove_manual_account,
         )
         self._remove_manual_btn.pack(side="left", padx=(2, 0))
+        self._settings_btn = ttk.Button(
+            top_frame,
+            text="⚙",
+            width=3,
+            command=self._on_settings,
+        )
+        self._settings_btn.pack(side="left", padx=(2, 0))
 
         # ── 第二行: Profile 分类选择 ────────────────────
         profile_frame = ttk.Frame(self, padding=(8, 4, 8, 0))
@@ -176,6 +192,15 @@ class App(tk.Tk):
 
         ttk.Label(hotkey_frame, text="热键:").pack(side="left")
 
+        self._hotkey_enabled_var = tk.BooleanVar(value=self._hotkey.enabled)
+        self._hotkey_toggle = ttk.Checkbutton(
+            hotkey_frame,
+            text="启用",
+            variable=self._hotkey_enabled_var,
+            command=self._on_hotkey_toggle,
+        )
+        self._hotkey_toggle.pack(side="left", padx=(4, 4))
+
         self._save_key_var = tk.StringVar(value=self._hotkey.save_hotkey)
         self._load_key_var = tk.StringVar(value=self._hotkey.load_hotkey)
 
@@ -204,6 +229,36 @@ class App(tk.Tk):
         )
         self._load_key_label.pack(side="left")
         self._load_key_label.bind("<Button-1>", lambda e: self._rebind_hotkey("load"))
+
+        self._toggle_readonly_key_var = tk.StringVar(
+            value=self._hotkey.toggle_readonly_hotkey
+        )
+        self._readonly_state_var = tk.StringVar(value="")
+
+        ttk.Label(hotkey_frame, text="只读").pack(side="left", padx=(8, 2))
+        self._toggle_readonly_key_label = ttk.Label(
+            hotkey_frame,
+            textvariable=self._toggle_readonly_key_var,
+            relief="sunken",
+            width=6,
+            anchor="center",
+            background="white",
+            cursor="hand2",
+        )
+        self._toggle_readonly_key_label.pack(side="left")
+        self._toggle_readonly_key_label.bind(
+            "<Button-1>", lambda e: self._rebind_hotkey("toggle_readonly")
+        )
+
+        self._readonly_state_label = ttk.Label(
+            hotkey_frame,
+            textvariable=self._readonly_state_var,
+            width=6,
+            anchor="center",
+            cursor="hand2",
+        )
+        self._readonly_state_label.pack(side="left", padx=(4, 0))
+        self._readonly_state_label.bind("<Button-1>", self._on_readonly_click)
 
     # ── Steam 账号加载 ────────────────────────────────
 
@@ -255,6 +310,7 @@ class App(tk.Tk):
         else:
             self._remove_manual_btn.config(state="disabled")
         self._load_profiles()
+        self._refresh_readonly_state()
 
     # ── Profile 分类管理 ──────────────────────────────
 
@@ -486,22 +542,40 @@ class App(tk.Tk):
         menu.add_command(label="删除", command=self._delete_selected)
         menu.post(event.x_root, event.y_root)
 
+    # ── 设置 ──────────────────────────────────────────
+
+    def _on_settings(self) -> None:
+        """设置按钮（占位）"""
+        pass
+
     # ── 热键修改 ──────────────────────────────────────
 
-    def _rebind_hotkey(self, which: Literal["save", "load"]) -> None:
-        """单独修改存档或读档热键"""
-        is_save = which == "save"
-        current = self._hotkey.save_hotkey if is_save else self._hotkey.load_hotkey
+    def _on_hotkey_toggle(self) -> None:
+        """全局热键开关"""
+        self._hotkey.set_enabled(self._hotkey_enabled_var.get())
+
+    def _rebind_hotkey(self, which: Literal["save", "load", "toggle_readonly"]) -> None:
+        """修改热键"""
+        if which == "save":
+            current = self._hotkey.save_hotkey
+        elif which == "load":
+            current = self._hotkey.load_hotkey
+        else:
+            current = self._hotkey.toggle_readonly_hotkey
 
         def on_key(key: str) -> None:
-            if is_save:
+            if which == "save":
                 self._hotkey.set_save_hotkey(key)
                 self._save_key_var.set(key)
                 save_config({"save_hotkey": key})
-            else:
+            elif which == "load":
                 self._hotkey.set_load_hotkey(key)
                 self._load_key_var.set(key)
                 save_config({"load_hotkey": key})
+            else:
+                self._hotkey.set_toggle_readonly_hotkey(key)
+                self._toggle_readonly_key_var.set(key)
+                save_config({"toggle_readonly_hotkey": key})
 
         with self._hotkey.suppressed():
             dlg = HotkeyRebindDialog(self, current, on_key)
@@ -594,6 +668,70 @@ class App(tk.Tk):
                 )
                 _load_dlg_ref.append(load_dlg)
                 self.wait_window(load_dlg)
+
+        elif action == HotkeyAction.TOGGLE_READONLY:
+            self._toggle_readonly(save_path)
+
+    # ── 只读状态指示器 ────────────────────────────────
+
+    def _on_readonly_click(self, event: tk.Event) -> None:
+        """点击只读指示器切换状态"""
+        account = self._accounts.get(self._current_steam_id or "")
+        if account is None:
+            return
+        self._toggle_readonly(account["save_path"])
+
+    def _toggle_readonly(self, save_path: str) -> None:
+        """切换游戏存档只读状态（热键 & 点击共用）"""
+        if not os.path.isfile(save_path):
+            return
+
+        try:
+            currently_ro = is_readonly(save_path)
+        except OSError:
+            return
+
+        try:
+            set_readonly(save_path, not currently_ro)
+        except OSError as e:
+            messagebox.showerror("错误", f"切换只读状态失败: {e}")
+            return
+
+        self._refresh_readonly_state(save_path)
+        self._beep_readonly(not currently_ro)
+
+    def _refresh_readonly_state(self, save_path: str | None = None) -> None:
+        """更新只读状态标签"""
+        if save_path is None:
+            account = self._accounts.get(self._current_steam_id or "")
+            if account is None:
+                self._readonly_state_var.set("")
+                return
+            save_path = account["save_path"]
+
+        if not os.path.isfile(save_path):
+            self._readonly_state_var.set("")
+            return
+
+        try:
+            ro = is_readonly(save_path)
+        except OSError:
+            self._readonly_state_var.set("")
+            return
+
+        self._readonly_state_var.set("🔒只读" if ro else "🔓可写")
+
+    def _beep_readonly(self, locked: bool) -> None:
+        """只读状态切换声音提示：高音 = 锁定，低音 = 解锁"""
+        if winsound is None:
+            return
+        try:
+            if locked:
+                winsound.Beep(1000, 200)  # 高音 — 锁上
+            else:
+                winsound.Beep(500, 200)  # 低音 — 解锁
+        except Exception:
+            pass
 
     # ── 关闭 ──────────────────────────────────────────
 

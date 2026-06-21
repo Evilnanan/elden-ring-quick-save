@@ -16,16 +16,19 @@ DEFAULT_PROFILE = "默认"
 class AppConfig(TypedDict):
     save_hotkey: str
     load_hotkey: str
+    toggle_readonly_hotkey: str
 
 
 class AppConfigPartial(TypedDict, total=False):
     save_hotkey: str
     load_hotkey: str
+    toggle_readonly_hotkey: str
 
 
 _DEFAULT_CONFIG: AppConfig = {
     "save_hotkey": ",",
     "load_hotkey": ".",
+    "toggle_readonly_hotkey": "/",
 }
 
 
@@ -48,7 +51,7 @@ def load_config() -> AppConfig:
 
     config = _DEFAULT_CONFIG.copy()
     if isinstance(data, dict):
-        for key in ("save_hotkey", "load_hotkey"):
+        for key in ("save_hotkey", "load_hotkey", "toggle_readonly_hotkey"):
             if key in data and isinstance(data[key], str) and data[key].strip():
                 config[key] = data[key]
     return config
