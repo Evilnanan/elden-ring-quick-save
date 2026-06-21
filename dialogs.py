@@ -587,11 +587,17 @@ class LoadDialog(tk.Toplevel):
 
 
 class RenameDialog(tk.Toplevel):
-    """重命名存档对话框"""
+    """重命名对话框（存档 / 账号 / 分类共用）"""
 
-    def __init__(self, parent, old_name: str, on_rename: Callable) -> None:
+    def __init__(
+        self,
+        parent,
+        old_name: str,
+        on_rename: Callable,
+        title: str = "重命名存档",
+    ) -> None:
         super().__init__(parent)
-        self.title("重命名存档")
+        self.title(title)
         self.resizable(False, False)
         self.transient(parent)
         self.grab_set()
@@ -667,7 +673,7 @@ class ManualAccountDialog(tk.Toplevel):
         f.pack()
 
         # ── Steam ID ────────────────────────────────────
-        ttk.Label(f, text="Steam ID:").pack(anchor="w")
+        ttk.Label(f, text="名称:").pack(anchor="w")
         self._id_var = tk.StringVar()
         self._id_entry = SafeFilenameEntry(
             f,

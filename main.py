@@ -36,6 +36,7 @@ from save_manager import (
     list_profiles,
     list_saves,
     load_save,
+    rename_profile,
     rename_save,
     set_readonly,
 )
@@ -43,6 +44,7 @@ from steam_helper import (
     AccountInfo,
     get_all_accounts,
     remove_manual_account_marker,
+    rename_manual_account,
     set_manual_account,
 )
 from utils import fuzzy_match
@@ -93,13 +95,13 @@ class App(tk.Tk):
         top_frame = ttk.Frame(self, padding=(8, 8, 8, 0))
         top_frame.pack(fill="x")
 
-        ttk.Label(top_frame, text="Steam ID:").pack(side="left")
+        ttk.Label(top_frame, text="账号:").pack(side="left")
         self._steam_var = tk.StringVar()
         self._steam_combo = ttk.Combobox(
             top_frame,
             textvariable=self._steam_var,
             state="readonly",
-            width=36,
+            width=41,
         )
         self._steam_combo.pack(side="left", padx=8, pady=4)
         self._steam_combo.bind("<<ComboboxSelected>>", self._on_account_changed)
@@ -114,13 +116,14 @@ class App(tk.Tk):
             command=self._remove_manual_account,
         )
         self._remove_manual_btn.pack(side="left", padx=(2, 0))
-        self._settings_btn = ttk.Button(
+        self._rename_manual_btn = ttk.Button(
             top_frame,
-            text="⚙",
+            text="≡",
             width=3,
-            command=self._on_settings,
+            state="disabled",
+            command=self._rename_manual_account,
         )
-        self._settings_btn.pack(side="left", padx=(2, 0))
+        self._rename_manual_btn.pack(side="left", padx=(2, 0))
 
         # ── 第二行: Profile 分类选择 ────────────────────
         profile_frame = ttk.Frame(self, padding=(8, 4, 8, 0))
@@ -144,6 +147,14 @@ class App(tk.Tk):
             command=self._remove_profile,
         )
         self._remove_profile_btn.pack(side="left", padx=(2, 0))
+        self._rename_profile_btn = ttk.Button(
+            profile_frame,
+            text="≡",
+            width=3,
+            state="disabled",
+            command=self._rename_profile,
+        )
+        self._rename_profile_btn.pack(side="left", padx=(2, 0))
 
         # ── 搜索 ────────────────────────────────────────
         search_frame = ttk.Frame(self, padding=(8, 6, 8, 0))
@@ -329,8 +340,10 @@ class App(tk.Tk):
         info = self._accounts.get(sid) if sid else None
         if info and info["is_manual"]:
             self._remove_manual_btn.config(state="normal")
+            self._rename_manual_btn.config(state="normal")
         else:
             self._remove_manual_btn.config(state="disabled")
+            self._rename_manual_btn.config(state="disabled")
         self._load_profiles()
         self._refresh_readonly_state()
 
@@ -344,6 +357,7 @@ class App(tk.Tk):
             self._profile_var.set("")
             self._current_profile = DEFAULT_PROFILE
             self._remove_profile_btn.config(state="disabled")
+            self._rename_profile_btn.config(state="disabled")
             self._refresh_save_list()
             return
 
@@ -367,11 +381,13 @@ class App(tk.Tk):
         self._refresh_save_list()
 
     def _update_profile_btn_state(self) -> None:
-        """「默认」profile 不允许删除"""
+        """「默认」profile 不允许删除和重命名"""
         if self._current_profile == DEFAULT_PROFILE:
             self._remove_profile_btn.config(state="disabled")
+            self._rename_profile_btn.config(state="disabled")
         else:
             self._remove_profile_btn.config(state="normal")
+            self._rename_profile_btn.config(state="normal")
 
     def _on_profile_changed(self, event=None) -> None:
         display = self._profile_var.get()
@@ -564,11 +580,53 @@ class App(tk.Tk):
         menu.add_command(label="删除", command=self._delete_selected)
         menu.post(event.x_root, event.y_root)
 
-    # ── 设置 ──────────────────────────────────────────
+    # ── 手动账号重命名 ────────────────────────────────
 
-    def _on_settings(self) -> None:
-        """设置按钮（占位）"""
-        pass
+    def _rename_manual_account(self) -> None:
+        """重命名手动添加的账号"""
+        sid = self._current_steam_id
+        if not sid:
+            return
+        info = self._accounts.get(sid)
+        if info is None or not info["is_manual"]:
+            return
+
+        def do_rename(new_id: str) -> None:
+            try:
+                rename_manual_account(sid, new_id)
+                self._load_accounts()
+            except FileExistsError:
+                messagebox.showerror("错误", f"账号「{new_id}」已存在，请换一个名称")
+            except Exception as e:
+                messagebox.showerror("错误", f"重命名失败: {e}")
+
+        with self._hotkey.suppressed():
+            dlg = RenameDialog(self, sid, do_rename, title="重命名账号")
+            self.wait_window(dlg)
+
+    # ── 分类重命名 ─────────────────────────────────────
+
+    def _rename_profile(self) -> None:
+        """重命名当前选中的分类"""
+        sid = self._current_steam_id
+        profile = self._current_profile
+        if not sid or profile == DEFAULT_PROFILE:
+            return
+
+        def do_rename(new_name: str) -> None:
+            try:
+                rename_profile(sid, profile, new_name)
+                self._load_profiles()
+            except FileExistsError:
+                messagebox.showerror(
+                    "错误", f"分类「{new_name}」已存在，请换一个名称"
+                )
+            except Exception as e:
+                messagebox.showerror("错误", f"重命名失败: {e}")
+
+        with self._hotkey.suppressed():
+            dlg = RenameDialog(self, profile, do_rename, title="重命名分类")
+            self.wait_window(dlg)
 
     # ── 热键修改 ──────────────────────────────────────
 

@@ -156,6 +156,20 @@ def delete_profile(steam_id: str, profile: str) -> bool:
     return False
 
 
+def rename_profile(steam_id: str, old_profile: str, new_profile: str) -> bool:
+    """重命名分类目录。「默认」不允许重命名"""
+    if old_profile == "默认":
+        return False
+    old_dir = os.path.join(_SCRIPT_DIR, "saves", steam_id, old_profile)
+    new_dir = os.path.join(_SCRIPT_DIR, "saves", steam_id, new_profile)
+    if not os.path.isdir(old_dir):
+        raise FileNotFoundError(f"分类不存在: {old_profile}")
+    if os.path.isdir(new_dir):
+        raise FileExistsError(f"分类「{new_profile}」已存在")
+    os.rename(old_dir, new_dir)
+    return True
+
+
 def is_readonly(path: str) -> bool:
     """检查游戏存档文件是否只读"""
     return os.path.isfile(path) and not os.access(path, os.W_OK)

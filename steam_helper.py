@@ -66,6 +66,17 @@ def remove_manual_account_marker(steam_id: str) -> None:
         os.remove(marker)
 
 
+def rename_manual_account(old_sid: str, new_sid: str) -> None:
+    """重命名手动添加的账号（重命名 saves/ 下的目录）"""
+    old_dir = os.path.join(_SAVES_DIR, old_sid)
+    new_dir = os.path.join(_SAVES_DIR, new_sid)
+    if not os.path.isdir(old_dir):
+        raise FileNotFoundError(f"账号目录不存在: {old_sid}")
+    if os.path.exists(new_dir):
+        raise FileExistsError(f"账号「{new_sid}」已存在")
+    os.rename(old_dir, new_dir)
+
+
 # ═══════════════════════════════════════════════════════════════
 # Steam 自动检测
 # ═══════════════════════════════════════════════════════════════
