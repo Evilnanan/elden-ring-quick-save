@@ -74,6 +74,7 @@ class App(tk.Tk):
             load_hotkey=cfg["load_hotkey"],
             toggle_readonly_hotkey=cfg["toggle_readonly_hotkey"],
         )
+        self._beep_enabled: bool = cfg["beep_enabled"]
 
         # ── 一次性迁移旧版 manual_accounts ────────────────
         migrate_manual_accounts_from_config()
@@ -291,7 +292,8 @@ class App(tk.Tk):
             cursor="hand2",
         )
         self._readonly_state_label.pack(side="left", padx=(4, 0))
-        self._readonly_state_label.bind("<Button-1>", self._on_readonly_click)
+        self._readonly_state_label.bind("<Button-1>", self._on_readonly_menu)
+        self._readonly_state_label.bind("<Button-3>", self._on_readonly_menu)
 
     # ── Steam 账号加载 ────────────────────────────────
 
@@ -761,6 +763,20 @@ class App(tk.Tk):
             return
         self._toggle_readonly(account["save_path"])
 
+    def _on_readonly_menu(self, event: tk.Event) -> None:
+        """点击只读指示器弹出声音设置菜单"""
+        menu = tk.Menu(self, tearoff=0)
+        menu.add_command(
+            label="✓ 声音" if self._beep_enabled else "   声音",
+            command=self._toggle_beep,
+        )
+        menu.post(event.x_root, event.y_root)
+
+    def _toggle_beep(self) -> None:
+        """切换只读声音提示开关"""
+        self._beep_enabled = not self._beep_enabled
+        save_config({"beep_enabled": self._beep_enabled})
+
     def _toggle_readonly(self, save_path: str) -> None:
         """切换游戏存档只读状态（热键 & 点击共用）"""
         if not os.path.isfile(save_path):
@@ -803,7 +819,7 @@ class App(tk.Tk):
 
     def _beep_readonly(self, locked: bool) -> None:
         """只读状态切换声音提示：高音 = 锁定，低音 = 解锁"""
-        if winsound is None:
+        if not self._beep_enabled or winsound is None:
             return
         try:
             if locked:

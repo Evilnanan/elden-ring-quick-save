@@ -17,18 +17,21 @@ class AppConfig(TypedDict):
     save_hotkey: str
     load_hotkey: str
     toggle_readonly_hotkey: str
+    beep_enabled: bool
 
 
 class AppConfigPartial(TypedDict, total=False):
     save_hotkey: str
     load_hotkey: str
     toggle_readonly_hotkey: str
+    beep_enabled: bool
 
 
 _DEFAULT_CONFIG: AppConfig = {
     "save_hotkey": ",",
     "load_hotkey": ".",
     "toggle_readonly_hotkey": "/",
+    "beep_enabled": True,
 }
 
 
@@ -54,6 +57,8 @@ def load_config() -> AppConfig:
         for key in ("save_hotkey", "load_hotkey", "toggle_readonly_hotkey"):
             if key in data and isinstance(data[key], str) and data[key].strip():
                 config[key] = data[key]
+        if "beep_enabled" in data and isinstance(data["beep_enabled"], bool):
+            config["beep_enabled"] = data["beep_enabled"]
     return config
 
 
