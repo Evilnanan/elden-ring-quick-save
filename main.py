@@ -15,7 +15,6 @@ from tkinter import messagebox, ttk
 from config import (
     DEFAULT_PROFILE,
     load_config,
-    migrate_manual_accounts_from_config,
     save_config,
 )
 from dialogs import (
@@ -75,9 +74,6 @@ class App(tk.Tk):
             toggle_readonly_hotkey=cfg["toggle_readonly_hotkey"],
         )
         self._beep_enabled: bool = cfg["beep_enabled"]
-
-        # ── 一次性迁移旧版 manual_accounts ────────────────
-        migrate_manual_accounts_from_config()
 
         # ── 构建界面 ────────────────────────────────────
         self._build_ui()
@@ -216,9 +212,7 @@ class App(tk.Tk):
         self._save_key_var = tk.StringVar(value=self._hotkey.save_hotkey)
         self._load_key_var = tk.StringVar(value=self._hotkey.load_hotkey)
 
-        self._save_text_label = ttk.Label(
-            hotkey_frame, text="存档", cursor="hand2"
-        )
+        self._save_text_label = ttk.Label(hotkey_frame, text="存档", cursor="hand2")
         self._save_text_label.pack(side="left", padx=(8, 2))
         self._save_text_label.bind(
             "<Button-1>", lambda e: self._hotkey.event_queue.put(HotkeyAction.SAVE)
@@ -236,9 +230,7 @@ class App(tk.Tk):
         self._save_key_label.pack(side="left")
         self._save_key_label.bind("<Button-1>", lambda e: self._rebind_hotkey("save"))
 
-        self._load_text_label = ttk.Label(
-            hotkey_frame, text="读档", cursor="hand2"
-        )
+        self._load_text_label = ttk.Label(hotkey_frame, text="读档", cursor="hand2")
         self._load_text_label.pack(side="left", padx=(8, 2))
         self._load_text_label.bind(
             "<Button-1>", lambda e: self._hotkey.event_queue.put(HotkeyAction.LOAD)
@@ -261,14 +253,11 @@ class App(tk.Tk):
         )
         self._readonly_state_var = tk.StringVar(value="")
 
-        self._readonly_text_label = ttk.Label(
-            hotkey_frame, text="只读", cursor="hand2"
-        )
+        self._readonly_text_label = ttk.Label(hotkey_frame, text="只读", cursor="hand2")
         self._readonly_text_label.pack(side="left", padx=(8, 2))
         self._readonly_text_label.bind(
-            "<Button-1>", lambda e: self._hotkey.event_queue.put(
-                HotkeyAction.TOGGLE_READONLY
-            )
+            "<Button-1>",
+            lambda e: self._hotkey.event_queue.put(HotkeyAction.TOGGLE_READONLY),
         )
         self._toggle_readonly_key_label = ttk.Label(
             hotkey_frame,
@@ -620,9 +609,7 @@ class App(tk.Tk):
                 rename_profile(sid, profile, new_name)
                 self._load_profiles()
             except FileExistsError:
-                messagebox.showerror(
-                    "错误", f"分类「{new_name}」已存在，请换一个名称"
-                )
+                messagebox.showerror("错误", f"分类「{new_name}」已存在，请换一个名称")
             except Exception as e:
                 messagebox.showerror("错误", f"重命名失败: {e}")
 

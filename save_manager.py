@@ -27,34 +27,8 @@ def _saves_dir(steam_id: str, profile: str) -> str:
     return target
 
 
-def _migrate_legacy(steam_id: str) -> None:
-    """将旧版直接存放在 saves/<steam_id>/ 下的 .sl2 文件迁移到「默认」profile"""
-    steam_dir = os.path.join(_SCRIPT_DIR, "saves", steam_id)
-    if not os.path.isdir(steam_dir):
-        return
-    try:
-        entries = list(os.scandir(steam_dir))
-    except OSError:
-        return
-
-    sl2_files = [e for e in entries if e.is_file() and e.name.endswith(".sl2")]
-    if not sl2_files:
-        return
-
-    default_dir = os.path.join(steam_dir, "默认")
-    os.makedirs(default_dir, exist_ok=True)
-    for entry in sl2_files:
-        dst = os.path.join(default_dir, entry.name)
-        if not os.path.exists(dst):
-            os.rename(entry.path, dst)
-
-
 def list_saves(steam_id: str, profile: str) -> list[SaveInfo]:
     """列出所有存档，按最近活动时间（max(atime, mtime)）倒序排列"""
-    # 对「默认」profile 执行旧版数据迁移
-    if profile == "默认":
-        _migrate_legacy(steam_id)
-
     d = _saves_dir(steam_id, profile)
     results: list[SaveInfo] = []
     try:
