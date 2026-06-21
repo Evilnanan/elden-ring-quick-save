@@ -204,7 +204,14 @@ class App(tk.Tk):
         self._save_key_var = tk.StringVar(value=self._hotkey.save_hotkey)
         self._load_key_var = tk.StringVar(value=self._hotkey.load_hotkey)
 
-        ttk.Label(hotkey_frame, text="存档").pack(side="left", padx=(8, 2))
+        self._save_text_label = ttk.Label(
+            hotkey_frame, text="存档", cursor="hand2"
+        )
+        self._save_text_label.pack(side="left", padx=(8, 2))
+        self._save_text_label.bind(
+            "<Button-1>", lambda e: self._hotkey.event_queue.put(HotkeyAction.SAVE)
+        )
+
         self._save_key_label = ttk.Label(
             hotkey_frame,
             textvariable=self._save_key_var,
@@ -217,7 +224,14 @@ class App(tk.Tk):
         self._save_key_label.pack(side="left")
         self._save_key_label.bind("<Button-1>", lambda e: self._rebind_hotkey("save"))
 
-        ttk.Label(hotkey_frame, text="读档").pack(side="left", padx=(8, 2))
+        self._load_text_label = ttk.Label(
+            hotkey_frame, text="读档", cursor="hand2"
+        )
+        self._load_text_label.pack(side="left", padx=(8, 2))
+        self._load_text_label.bind(
+            "<Button-1>", lambda e: self._hotkey.event_queue.put(HotkeyAction.LOAD)
+        )
+
         self._load_key_label = ttk.Label(
             hotkey_frame,
             textvariable=self._load_key_var,
@@ -235,7 +249,15 @@ class App(tk.Tk):
         )
         self._readonly_state_var = tk.StringVar(value="")
 
-        ttk.Label(hotkey_frame, text="只读").pack(side="left", padx=(8, 2))
+        self._readonly_text_label = ttk.Label(
+            hotkey_frame, text="只读", cursor="hand2"
+        )
+        self._readonly_text_label.pack(side="left", padx=(8, 2))
+        self._readonly_text_label.bind(
+            "<Button-1>", lambda e: self._hotkey.event_queue.put(
+                HotkeyAction.TOGGLE_READONLY
+            )
+        )
         self._toggle_readonly_key_label = ttk.Label(
             hotkey_frame,
             textvariable=self._toggle_readonly_key_var,
